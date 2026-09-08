@@ -1,0 +1,20 @@
+# Local environment files may contain credentials.
+.env
+.env.*
+!.env.example
+
+# Generated dependencies and build artifacts.
+node_modules/
+.next/
+dist/
+coverage/
+.tmp/
+target/
+*.spkg
+**/src/pb/.last_generated_hash
+
+# Generated pipeline artifacts can contain local runtime output. Keep the
+# judge-inspectable golden package eligible for source control.
+generated/*
+!generated/golden-erc4626/
+!generated/golden-erc4626/**

@@ -1,0 +1,47 @@
+{
+  "name": "IndexLoom Substreams",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "SUBSTREAMS_VERSION": "1.22.0",
+      "BUF_VERSION": "1.72.0"
+    }
+  },
+  "workspaceFolder": "/workspace/IndexLoom",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/IndexLoom,type=bind,consistency=cached",
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22",
+      "pnpmVersion": "10"
+    }
+  },
+  "runArgs": [
+    "--add-host=host.docker.internal:host-gateway"
+  ],
+  "forwardPorts": [
+    3000,
+    4000
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "IndexLoom web"
+    },
+    "4000": {
+      "label": "IndexLoom API"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "bufbuild.vscode-buf",
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss",
+        "Prisma.prisma"
+      ]
+    }
+  },
+  "postCreateCommand": "rustup target add wasm32-unknown-unknown && substreams --version && rustc --version && cargo --version && buf --version && node --version && pnpm --version"
+}
+

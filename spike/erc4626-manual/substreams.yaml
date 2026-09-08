@@ -1,0 +1,59 @@
+specVersion: v0.1.0
+
+package:
+  name: indexloom_erc4626_manual
+  version: v0.1.0
+  url: https://github.com/aamir/indexloom
+  description: Manual IndexLoom Phase 1 Base ERC-4626 feasibility package
+
+imports:
+  ethereum_common: https://spkg.io/v1/packages/ethereum-common/v0.3.3
+  database: https://github.com/streamingfast/substreams-sink-database-changes/releases/download/v4.0.0/substreams-sink-database-changes-v4.0.0.spkg
+
+network: base
+
+protobuf:
+  files:
+    - indexloom/erc4626/v1/vault.proto
+  importPaths:
+    - ./proto
+  excludePaths:
+    - google
+    - sf/ethereum
+    - sf/firehose
+    - sf/substreams/index
+    - sf/substreams/rpc
+    - sf/substreams/sink
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/indexloom_erc4626_manual.wasm
+
+modules:
+  - name: map_vault_events
+    kind: map
+    initialBlock: 50999146
+    inputs:
+      - map: ethereum_common:filtered_events
+    output:
+      type: proto:indexloom.erc4626.v1.VaultEvents
+
+  - name: db_out
+    kind: map
+    initialBlock: 50999146
+    inputs:
+      - map: map_vault_events
+    output:
+      type: proto:sf.substreams.sink.database.v1.DatabaseChanges
+
+params:
+  ethereum_common:filtered_events: >-
+    ((evt_addr:0x050ce30b927da55177a4914ec73480238bad56f0 || evt_addr:0xbeeff2490feffa212fac2f6553682c219e6a8845 || evt_addr:0xee8f4ec5672f09119b96ab6fb59c27e1b7e44b61) && (evt_sig:0xdcbc1c05240f31ff3ad067ef1ee35ce4997762752e3a095284754544f4c709d7 || evt_sig:0xfbde797d201c681b91056529119e0b02407c7bb96a4a2c75c01fc9667232c8db))
+
+sink:
+  module: db_out
+  type: sf.substreams.sink.sql.service.v1.Service
+  config:
+    schema: ./schema.sql
+    engine: postgres
