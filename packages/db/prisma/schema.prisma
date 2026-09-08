@@ -1,0 +1,162 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PipelineState {
+  DRAFT
+  PLANNING
+  PLAN_READY
+  BUILD_QUEUED
+  BUILDING
+  VALIDATING
+  AWAITING_APPROVAL
+  DEPLOYING
+  LIVE
+  NEEDS_INPUT
+  UNSUPPORTED_SCOPE
+  PLAN_FAILED
+  BUILD_FAILED
+  VALIDATION_FAILED
+  FAILED_INTERRUPTED
+  DEPLOYMENT_FAILED
+  CANCELLED
+}
+
+enum PipelineRunStage {
+  BUILD
+  INFO
+  GRAPH
+  VALIDATION
+  DEPLOYMENT
+  SINK
+}
+
+enum PipelineRunStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  FAILED_INTERRUPTED
+  CANCELLED
+}
+
+enum DeploymentStatus {
+  STARTING
+  LIVE
+  STOPPED
+  FAILED
+}
+
+model Pipeline {
+  id             String               @id @db.VarChar(40)
+  originalPrompt String               @db.Text
+  state          PipelineState        @default(DRAFT)
+  spec           Json?
+  derivedPlan    Json?
+  slug           String?              @unique @db.VarChar(80)
+  activeVersion  Int                  @default(0)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  contracts      PipelineContract[]
+  versions       PipelineVersion[]
+  runs           PipelineRun[]
+  deployments    Deployment[]
+  transitions    PipelineTransition[]
+
+  @@index([state, createdAt])
+  @@map("pipelines")
+}
+
+model PipelineContract {
+  id         String   @id @default(cuid())
+  pipelineId String   @db.VarChar(40)
+  address    String   @db.VarChar(42)
+  label      String?  @db.VarChar(60)
+  createdAt  DateTime @default(now())
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@unique([pipelineId, address])
+  @@index([address])
+  @@map("pipeline_contracts")
+}
+
+model PipelineVersion {
+  pipelineId             String   @db.VarChar(40)
+  version                Int
+  templateVersion        String   @db.VarChar(20)
+  importedPackageVersion String   @db.VarChar(40)
+  configurationHash      String?  @db.VarChar(80)
+  packageHash            String?  @db.VarChar(80)
+  artifactDirectory      String   @db.Text
+  validationStartBlock   Int?
+  validationStopBlock    Int?
+  validationResult       Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  pipeline               Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@id([pipelineId, version])
+  @@map("pipeline_versions")
+}
+
+model PipelineRun {
+  id          String            @id @default(cuid())
+  pipelineId  String            @db.VarChar(40)
+  version     Int
+  stage       PipelineRunStage
+  status      PipelineRunStatus @default(PENDING)
+  attempt     Int               @default(1)
+  exitCode    Int?
+  stdout      String?           @db.Text
+  stderr      String?           @db.Text
+  startedAt   DateTime?
+  endedAt     DateTime?
+  errorCode   String?           @db.VarChar(80)
+  errorMessage String?          @db.Text
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  pipeline    Pipeline          @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([pipelineId, version, createdAt])
+  @@map("pipeline_runs")
+}
+
+model Deployment {
+  id             String           @id @default(cuid())
+  pipelineId     String           @db.VarChar(40)
+  version        Int
+  schemaName     String           @db.VarChar(63)
+  startBlock     Int
+  processId      Int?
+  status         DeploymentStatus @default(STARTING)
+  startedAt      DateTime?
+  stoppedAt      DateTime?
+  lastOutputAt   DateTime?
+  lastError      String?          @db.Text
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  pipeline       Pipeline         @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([pipelineId, version])
+  @@map("deployments")
+}
+
+model PipelineTransition {
+  id         String        @id @default(cuid())
+  pipelineId String        @db.VarChar(40)
+  fromState  PipelineState?
+  toState    PipelineState
+  reason     String        @db.Text
+  createdAt  DateTime      @default(now())
+  pipeline   Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@index([pipelineId, createdAt])
+  @@map("pipeline_transitions")
+}

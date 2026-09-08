@@ -78,7 +78,7 @@ export function derivePipelineConfig(
     throw new Error("pipelineVersion must be a positive safe integer");
   }
 
-  const slug = safeIdentifier(spec.displayName).replaceAll("_", "-");
+  const slug = `${safeIdentifier(spec.displayName).replaceAll("_", "-")}-${pipelineId.slice(3)}`;
   const packageName = `${safeIdentifier(spec.displayName)}_${pipelineId.slice(3)}`;
   const schemaName = `dataset_${pipelineId}`;
   const addresses = spec.contracts.map(({ address }) => `evt_addr:${address}`);

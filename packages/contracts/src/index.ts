@@ -29,6 +29,50 @@ export const PipelineSpecSchema = z.strictObject({
 
 export type PipelineSpec = z.infer<typeof PipelineSpecSchema>;
 
+export const PIPELINE_STATES = [
+  "DRAFT",
+  "PLANNING",
+  "PLAN_READY",
+  "BUILD_QUEUED",
+  "BUILDING",
+  "VALIDATING",
+  "AWAITING_APPROVAL",
+  "DEPLOYING",
+  "LIVE",
+  "NEEDS_INPUT",
+  "UNSUPPORTED_SCOPE",
+  "PLAN_FAILED",
+  "BUILD_FAILED",
+  "VALIDATION_FAILED",
+  "FAILED_INTERRUPTED",
+  "DEPLOYMENT_FAILED",
+  "CANCELLED",
+] as const;
+
+export const PipelineStateSchema = z.enum(PIPELINE_STATES);
+export type PipelineState = z.infer<typeof PipelineStateSchema>;
+
+export const PlannerResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("ready"),
+    spec: PipelineSpecSchema,
+  }),
+  z.strictObject({
+    status: z.literal("needs_clarification"),
+    questions: z.array(z.string().min(1).max(300)).min(1).max(5),
+  }),
+  z.strictObject({
+    status: z.literal("unsupported"),
+    reason: z.string().min(1).max(500),
+  }),
+]);
+
+export type PlannerResult = z.infer<typeof PlannerResultSchema>;
+
+export interface PipelinePlanner {
+  plan(prompt: string): Promise<PlannerResult>;
+}
+
 export function parsePipelineSpec(input: unknown): PipelineSpec {
   const spec = PipelineSpecSchema.parse(input);
   const issues: Array<{ path: PropertyKey[]; message: string }> = [];
