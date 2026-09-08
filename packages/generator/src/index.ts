@@ -13,6 +13,7 @@ import {
   derivePipelineConfig,
   type DerivedPipelineConfig,
 } from "@indexloom/pipeline-config";
+import { z } from "zod";
 
 export const TEMPLATE_VERSION = "v1";
 
@@ -53,6 +54,29 @@ export interface RenderedPipeline {
   outputDirectory: string;
   config: DerivedPipelineConfig;
   manifest: ArtifactManifest;
+}
+
+const ArtifactManifestSchema = z.strictObject({
+  version: z.literal(1),
+  templateVersion: z.literal(TEMPLATE_VERSION),
+  pipelineId: z.string().regex(/^pl_[a-z0-9]{8,32}$/),
+  pipelineVersion: z.number().int().positive(),
+  packageName: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
+  schemaName: z.string().regex(/^dataset_pl_[a-z0-9]{8,32}$/),
+  specSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  files: z.array(
+    z.strictObject({
+      path: z.string().min(1),
+      sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    }),
+  ),
+});
+
+export interface ArtifactVerification {
+  valid: boolean;
+  errors: string[];
+  manifest: ArtifactManifest;
+  manifestSha256: string;
 }
 
 function sha256(content: Buffer | string): string {
@@ -210,4 +234,47 @@ export async function renderPipeline(
   );
 
   return { outputDirectory, config, manifest };
+}
+
+export async function verifyRenderedPipeline(
+  outputDirectory: string,
+): Promise<ArtifactVerification> {
+  const manifestBytes = await readFile(
+    resolveWithin(outputDirectory, "artifact-manifest.json"),
+  );
+  const manifest = ArtifactManifestSchema.parse(
+    JSON.parse(manifestBytes.toString("utf8")),
+  ) as ArtifactManifest;
+  const errors: string[] = [];
+  const expectedPaths = [
+    ...FIXED_TEMPLATE_FILES,
+    "README.generated.md",
+    "pipeline-spec.json",
+    "substreams.yaml",
+  ].sort();
+  const actualPaths = manifest.files.map(({ path }) => path).sort();
+  if (new Set(actualPaths).size !== actualPaths.length) {
+    errors.push("Artifact manifest contains duplicate paths");
+  }
+  if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) {
+    errors.push("Artifact manifest file allowlist does not match the template");
+  }
+  for (const file of manifest.files) {
+    try {
+      const actualHash = sha256(await readFile(resolveWithin(outputDirectory, file.path)));
+      if (actualHash !== file.sha256) errors.push(`Hash mismatch: ${file.path}`);
+    } catch {
+      errors.push(`Missing artifact: ${file.path}`);
+    }
+  }
+  const specEntry = manifest.files.find(({ path }) => path === "pipeline-spec.json");
+  if (specEntry?.sha256 !== manifest.specSha256) {
+    errors.push("Pipeline specification hash does not match artifact manifest");
+  }
+  return {
+    valid: errors.length === 0,
+    errors,
+    manifest,
+    manifestSha256: sha256(manifestBytes),
+  };
 }

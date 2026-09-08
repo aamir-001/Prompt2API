@@ -1,5 +1,5 @@
 {
-  "name": "@indexloom/generator",
+  "name": "@indexloom/dataset-service",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@indexloom/contracts": "workspace:*",
-    "@indexloom/pipeline-config": "workspace:*",
+    "pg": "8.23.0",
     "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
   }
 }

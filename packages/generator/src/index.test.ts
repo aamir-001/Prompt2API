@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import {
   FIXED_TEMPLATE_FILES,
   renderPipeline,
   type RenderedPipeline,
+  verifyRenderedPipeline,
 } from "./index.js";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
@@ -126,5 +127,17 @@ describe("trusted ERC-4626 renderer", () => {
     await expect(
       renderPipeline({ ...common, artifactSubdirectory: "existing" }),
     ).rejects.toThrow(/not empty/);
+  });
+
+  it("detects any source change after preview", async () => {
+    const result = await render("verified");
+    await expect(verifyRenderedPipeline(result.outputDirectory)).resolves.toMatchObject({
+      valid: true,
+      errors: [],
+    });
+    await writeFile(join(result.outputDirectory, "schema.sql"), "-- tampered\n");
+    const verification = await verifyRenderedPipeline(result.outputDirectory);
+    expect(verification.valid).toBe(false);
+    expect(verification.errors).toContain("Hash mismatch: schema.sql");
   });
 });

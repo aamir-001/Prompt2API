@@ -73,6 +73,13 @@ export interface PipelinePlanner {
   plan(prompt: string): Promise<PlannerResult>;
 }
 
+export const ApprovalRequestSchema = z.strictObject({
+  configurationHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  packageHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+});
+
+export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
+
 export function parsePipelineSpec(input: unknown): PipelineSpec {
   const spec = PipelineSpecSchema.parse(input);
   const issues: Array<{ path: PropertyKey[]; message: string }> = [];

@@ -9,10 +9,12 @@ import type {
   FinishRunInput,
   PipelineSnapshot,
   ValidationArtifacts,
+  DeploymentContext,
 } from "./store.js";
 
 export class MemoryControlStore implements ControlStore {
   readonly #pipelines = new Map<string, PipelineSnapshot>();
+  readonly #deployments = new Map<string, DeploymentContext>();
 
   async createPipeline(id: string, originalPrompt: string): Promise<PipelineSnapshot> {
     const now = new Date();
@@ -77,6 +79,13 @@ export class MemoryControlStore implements ControlStore {
     return [...this.#pipelines.values()]
       .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
       .map((pipeline) => structuredClone(pipeline));
+  }
+
+  async getPipelineBySlug(slug: string): Promise<PipelineSnapshot | null> {
+    const pipeline = [...this.#pipelines.values()].find(
+      (candidate) => candidate.slug === slug,
+    );
+    return pipeline === undefined ? null : structuredClone(pipeline);
   }
 
   async enqueueBuild(input: EnqueueBuildInput): Promise<ClaimedBuildJob> {
@@ -215,10 +224,66 @@ export class MemoryControlStore implements ControlStore {
     }
   }
 
+  async createDeployment(
+    pipelineId: string,
+    version: number,
+    schemaName: string,
+    startBlock: number,
+  ): Promise<DeploymentContext> {
+    const pipeline = this.#required(pipelineId);
+    const pipelineVersion = pipeline.versions.find(
+      (candidate) => candidate.version === version,
+    );
+    if (pipelineVersion === undefined) throw new Error("Pipeline version not found");
+    const deployment: DeploymentContext = {
+      id: randomUUID(),
+      pipelineId,
+      version,
+      schemaName,
+      startBlock,
+      processId: null,
+      status: "STARTING",
+      artifactDirectory: pipelineVersion.artifactDirectory,
+    };
+    this.#deployments.set(deployment.id, deployment);
+    return structuredClone(deployment);
+  }
+
+  async markDeploymentLive(deploymentId: string, processId: number): Promise<void> {
+    const deployment = this.#requiredDeployment(deploymentId);
+    deployment.status = "LIVE";
+    deployment.processId = processId;
+  }
+
+  async markDeploymentOutput(_deploymentId: string): Promise<void> {}
+
+  async markDeploymentStopped(
+    deploymentId: string,
+    status: "STOPPED" | "FAILED",
+  ): Promise<void> {
+    const deployment = this.#requiredDeployment(deploymentId);
+    deployment.status = status;
+    deployment.processId = null;
+  }
+
+  async listLiveDeployments(): Promise<DeploymentContext[]> {
+    return [...this.#deployments.values()]
+      .filter(({ status }) => status === "LIVE")
+      .map((deployment) => structuredClone(deployment));
+  }
+
   #required(pipelineId: string): PipelineSnapshot {
     const pipeline = this.#pipelines.get(pipelineId);
     if (pipeline === undefined) throw new Error(`Pipeline not found: ${pipelineId}`);
     return pipeline;
+  }
+
+  #requiredDeployment(deploymentId: string): DeploymentContext {
+    const deployment = this.#deployments.get(deploymentId);
+    if (deployment === undefined) {
+      throw new Error(`Deployment not found: ${deploymentId}`);
+    }
+    return deployment;
   }
 
   #transition(

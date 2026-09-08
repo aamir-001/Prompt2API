@@ -6,6 +6,7 @@ import type { ProcessResult } from "@indexloom/substreams-runner";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
+import { ApprovalService } from "./approval-service.js";
 import { BuildWorker } from "./build-worker.js";
 import { MemoryControlStore } from "./memory-store.js";
 
@@ -101,6 +102,36 @@ describe("control API vertical slice", () => {
       buildTimeoutMs: 1_000,
       validationTimeoutMs: 1_000,
     });
+    const approvalService = new ApprovalService(store, {
+      async deploy(pipelineId, version, schemaName, startBlock) {
+        const deployment = await store.createDeployment(
+          pipelineId,
+          version,
+          schemaName,
+          startBlock,
+        );
+        await store.markDeploymentLive(deployment.id, 1234);
+        await store.transition(pipelineId, "LIVE", "Test sink started");
+        return { ...deployment, status: "LIVE" as const, processId: 1234 };
+      },
+    });
+    const datasetService = {
+      async health() {
+        return { indexedThroughBlock: "50999150" };
+      },
+      async events() {
+        return {
+          items: [{ eventId: "known-event", assetsRaw: "523694647" }],
+          nextCursor: null,
+        };
+      },
+      async hourlyFlows() {
+        return { items: [], nextCursor: null };
+      },
+      async topDepositors() {
+        return { items: [], nextCursor: null };
+      },
+    };
     const app = createApp({
       store,
       planner,
@@ -108,6 +139,8 @@ describe("control API vertical slice", () => {
       artifactRoot,
       templateRoot: join(repositoryRoot, "templates", "erc4626"),
       validationBlockCount: 1_000,
+      approvalService,
+      datasetService,
       createPipelineId: () => "pl_test1234",
     });
 
@@ -143,6 +176,31 @@ describe("control API vertical slice", () => {
     expect(preview.body.packageHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(preview.body.validation.eventCount).toBe(1);
     expect(preview.body.validation.preview[0].eventType).toBe("DEPOSIT");
+
+    const changed = await request(app)
+      .post("/v1/pipelines/pl_test1234/approve")
+      .send({
+        configurationHash: `sha256:${"f".repeat(64)}`,
+        packageHash: preview.body.packageHash,
+      })
+      .expect(409);
+    expect(changed.body.error.code).toBe("ARTIFACT_CHANGED");
+
+    const approval = await request(app)
+      .post("/v1/pipelines/pl_test1234/approve")
+      .send({
+        configurationHash: preview.body.configurationHash,
+        packageHash: preview.body.packageHash,
+      })
+      .expect(202);
+    expect(approval.body.status).toBe("LIVE");
+
+    const livePipeline = await store.getPipeline("pl_test1234");
+    const events = await request(app)
+      .get(`/v1/datasets/${livePipeline!.slug}/events?limit=10`)
+      .expect(200);
+    expect(events.body.status).toBe("LIVE");
+    expect(events.body.items[0].eventId).toBe("known-event");
   });
 
   it("returns 422 for unsupported scope", async () => {
@@ -163,6 +221,17 @@ describe("control API vertical slice", () => {
       artifactRoot,
       templateRoot: join(repositoryRoot, "templates", "erc4626"),
       validationBlockCount: 1_000,
+      approvalService: {
+        async approve() {
+          throw new Error("not used");
+        },
+      },
+      datasetService: {
+        async health() { return { indexedThroughBlock: null }; },
+        async events() { return { items: [], nextCursor: null }; },
+        async hourlyFlows() { return { items: [], nextCursor: null }; },
+        async topDepositors() { return { items: [], nextCursor: null }; },
+      },
       createPipelineId: () => "pl_test5678",
     });
 

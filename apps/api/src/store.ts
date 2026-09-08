@@ -94,6 +94,17 @@ export interface ValidationArtifacts {
   validationResult: unknown;
 }
 
+export interface DeploymentContext {
+  id: string;
+  pipelineId: string;
+  version: number;
+  schemaName: string;
+  startBlock: number;
+  processId: number | null;
+  status: "STARTING" | "LIVE" | "STOPPED" | "FAILED";
+  artifactDirectory: string;
+}
+
 export interface ControlStore {
   createPipeline(id: string, originalPrompt: string): Promise<PipelineSnapshot>;
   recordReadyPlan(
@@ -116,6 +127,21 @@ export interface ControlStore {
   saveValidationArtifacts(input: ValidationArtifacts): Promise<void>;
   recoverInterruptedJobs(): Promise<number>;
   cancelPendingRuns(pipelineId: string): Promise<void>;
+  getPipelineBySlug(slug: string): Promise<PipelineSnapshot | null>;
+  createDeployment(
+    pipelineId: string,
+    version: number,
+    schemaName: string,
+    startBlock: number,
+  ): Promise<DeploymentContext>;
+  markDeploymentLive(deploymentId: string, processId: number): Promise<void>;
+  markDeploymentOutput(deploymentId: string): Promise<void>;
+  markDeploymentStopped(
+    deploymentId: string,
+    status: "STOPPED" | "FAILED",
+    lastError?: string,
+  ): Promise<void>;
+  listLiveDeployments(): Promise<DeploymentContext[]>;
 }
 
 const pipelineInclude = {
@@ -268,6 +294,14 @@ export class PrismaControlStore implements ControlStore {
       include: pipelineInclude,
     });
     return rows.map(snapshot);
+  }
+
+  async getPipelineBySlug(slug: string): Promise<PipelineSnapshot | null> {
+    const row = await this.prisma.pipeline.findUnique({
+      where: { slug },
+      include: pipelineInclude,
+    });
+    return row === null ? null : snapshot(row);
   }
 
   async enqueueBuild(input: EnqueueBuildInput): Promise<ClaimedBuildJob> {
@@ -437,5 +471,72 @@ export class PrismaControlStore implements ControlStore {
         errorMessage: "Cancelled by operator",
       },
     });
+  }
+
+  async createDeployment(
+    pipelineId: string,
+    version: number,
+    schemaName: string,
+    startBlock: number,
+  ): Promise<DeploymentContext> {
+    const deployment = await this.prisma.deployment.create({
+      data: { pipelineId, version, schemaName, startBlock, status: "STARTING" },
+    });
+    const pipelineVersion = await this.prisma.pipelineVersion.findUniqueOrThrow({
+      where: { pipelineId_version: { pipelineId, version } },
+      select: { artifactDirectory: true },
+    });
+    return { ...deployment, artifactDirectory: pipelineVersion.artifactDirectory };
+  }
+
+  async markDeploymentLive(deploymentId: string, processId: number): Promise<void> {
+    await this.prisma.deployment.update({
+      where: { id: deploymentId },
+      data: { status: "LIVE", processId, startedAt: new Date(), stoppedAt: null },
+    });
+  }
+
+  async markDeploymentOutput(deploymentId: string): Promise<void> {
+    await this.prisma.deployment.update({
+      where: { id: deploymentId },
+      data: { lastOutputAt: new Date() },
+    });
+  }
+
+  async markDeploymentStopped(
+    deploymentId: string,
+    status: "STOPPED" | "FAILED",
+    lastError?: string,
+  ): Promise<void> {
+    await this.prisma.deployment.update({
+      where: { id: deploymentId },
+      data: {
+        status,
+        processId: null,
+        stoppedAt: new Date(),
+        ...(lastError === undefined ? {} : { lastError }),
+      },
+    });
+  }
+
+  async listLiveDeployments(): Promise<DeploymentContext[]> {
+    const deployments = await this.prisma.deployment.findMany({
+      where: { status: "LIVE" },
+      orderBy: { createdAt: "asc" },
+    });
+    return Promise.all(
+      deployments.map(async (deployment) => {
+        const version = await this.prisma.pipelineVersion.findUniqueOrThrow({
+          where: {
+            pipelineId_version: {
+              pipelineId: deployment.pipelineId,
+              version: deployment.version,
+            },
+          },
+          select: { artifactDirectory: true },
+        });
+        return { ...deployment, artifactDirectory: version.artifactDirectory };
+      }),
+    );
   }
 }
