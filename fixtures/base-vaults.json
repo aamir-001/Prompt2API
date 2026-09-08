@@ -1,0 +1,18 @@
+{
+  "chainId": "base-mainnet",
+  "assetAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  "vaults": [
+    {
+      "address": "0x050ce30b927da55177a4914ec73480238bad56f0",
+      "label": "Gauntlet USDC Prime v2"
+    },
+    {
+      "address": "0xbeeff2490feffa212fac2f6553682c219e6a8845",
+      "label": "Steakhouse High Yield USDC Edition"
+    },
+    {
+      "address": "0xee8f4ec5672f09119b96ab6fb59c27e1b7e44b61",
+      "label": "Gauntlet USDC Prime"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "base-mainnet": {
+    "range": {
+      "startBlock": 50999146,
+      "stopBlockExclusive": 51000146
+    },
+    "expectedCounts": {
+      "0x050ce30b927da55177a4914ec73480238bad56f0": {
+        "Deposit": 138,
+        "Withdraw": 48
+      },
+      "0xbeeff2490feffa212fac2f6553682c219e6a8845": {
+        "Deposit": 66,
+        "Withdraw": 13
+      },
+      "0xee8f4ec5672f09119b96ab6fb59c27e1b7e44b61": {
+        "Deposit": 4,
+        "Withdraw": 6
+      }
+    },
+    "transactionHashes": [
+      "0xa88efc19760e12e3773270f004ede724b58d9a82d7cef2dd0d9adf811a275095",
+      "0xaff941c641d1bfb156647357811a032d01ff54b5852fee9d8ba92cec01152a39",
+      "0xbaf09b0ecbe7fb5f7dec7502083d3693a995241d22a71e8e00f8f1988098ffdf",
+      "0xa87f05b03f1908ee4b9926a63999b50d32887cf8f1733d4ddbb84b9eb42045b0"
+    ]
+  }
+}

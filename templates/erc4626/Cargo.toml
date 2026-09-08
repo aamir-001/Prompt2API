@@ -1,0 +1,27 @@
+[package]
+name = "indexloom-erc4626-template"
+version = "0.1.0"
+edition = "2021"
+description = "Trusted IndexLoom Phase 1 Base ERC-4626 pipeline template"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ethabi = "17"
+hex = "0.4"
+prost = "0.13"
+prost-types = "0.13"
+substreams = "0.7"
+substreams-database-change = "4"
+substreams-ethereum = "0.11"
+
+[build-dependencies]
+prost-build = "0.13"
+substreams-ethereum = "0.11"
+
+[profile.release]
+lto = true
+opt-level = "s"
+strip = "debuginfo"

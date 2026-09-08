@@ -1,0 +1,17 @@
+{
+  "name": "@indexloom/generator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@indexloom/contracts": "workspace:*",
+    "@indexloom/pipeline-config": "workspace:*"
+  }
+}

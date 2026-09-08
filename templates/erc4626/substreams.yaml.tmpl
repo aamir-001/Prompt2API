@@ -1,0 +1,59 @@
+specVersion: v0.1.0
+
+package:
+  name: {{PACKAGE_NAME}}
+  version: v0.1.0
+  url: https://github.com/aamir/indexloom
+  description: Trusted IndexLoom Base ERC-4626 pipeline
+
+imports:
+  ethereum_common: https://spkg.io/v1/packages/ethereum-common/v0.3.3
+  database: https://github.com/streamingfast/substreams-sink-database-changes/releases/download/v4.0.0/substreams-sink-database-changes-v4.0.0.spkg
+
+network: base
+
+protobuf:
+  files:
+    - indexloom/erc4626/v1/vault.proto
+  importPaths:
+    - ./proto
+  excludePaths:
+    - google
+    - sf/ethereum
+    - sf/firehose
+    - sf/substreams/index
+    - sf/substreams/rpc
+    - sf/substreams/sink
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/indexloom_erc4626_template.wasm
+
+modules:
+  - name: map_vault_events
+    kind: map
+    initialBlock: {{START_BLOCK}}
+    inputs:
+      - map: ethereum_common:filtered_events
+    output:
+      type: proto:indexloom.erc4626.v1.VaultEvents
+
+  - name: db_out
+    kind: map
+    initialBlock: {{START_BLOCK}}
+    inputs:
+      - map: map_vault_events
+    output:
+      type: proto:sf.substreams.sink.database.v1.DatabaseChanges
+
+params:
+  ethereum_common:filtered_events: >-
+    ({{FILTER_SINGLE_LINE}})
+
+sink:
+  module: db_out
+  type: sf.substreams.sink.sql.service.v1.Service
+  config:
+    schema: ./schema.sql
+    engine: postgres

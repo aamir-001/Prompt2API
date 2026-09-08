@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "templateVersion": "v1",
+  "pipelineId": "pl_golden4626",
+  "pipelineVersion": 1,
+  "packageName": "base_erc_4626_vault_flows_golden4626",
+  "schemaName": "dataset_pl_golden4626",
+  "specSha256": "eda5e87a2ad03784b5d0f676a619b8b38576e12135617c88dbdfd7a6cad5704a",
+  "files": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "e39dfc33d56000900350f6a6afc021e43d091881502b398f7ec25adb7f7db2ae"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "c049f6a114161aa2f44985323bf9c8f44c1cc831f4f3c51e1400a76fb1fc16ac"
+    },
+    {
+      "path": "README.generated.md",
+      "sha256": "d1d58aa00a66c1d432259b951ea300a47e37784f64a08c933d7b2421dc12d288"
+    },
+    {
+      "path": "abi/erc4626.json",
+      "sha256": "fb1cdf03c825499261f0042154abc6527ad8e8ebe5877de91b833f7e5bf4d9fb"
+    },
+    {
+      "path": "buf.gen.yaml",
+      "sha256": "193cf6d201f5a80803e229b8c8cac7f73e39dfc152e5ede22fb4695612f8866f"
+    },
+    {
+      "path": "build.rs",
+      "sha256": "6dd43308ed0babaf6e1fd1b50a35cfa2c18d9dd26d6315570c436a297c3736ef"
+    },
+    {
+      "path": "pipeline-spec.json",
+      "sha256": "eda5e87a2ad03784b5d0f676a619b8b38576e12135617c88dbdfd7a6cad5704a"
+    },
+    {
+      "path": "proto/indexloom/erc4626/v1/vault.proto",
+      "sha256": "9ef8924fe605f2a397bc59496c3744b9420acde7d82b8db39e1b8e96ded631b8"
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "sha256": "7d9611a374ad9a48a535a61752e593d787918f1af0bbfe233f7f286a0bc42eeb"
+    },
+    {
+      "path": "schema.sql",
+      "sha256": "02e6b800a956c951e035a73d2d82940d5eabcd496d676a06c88baa1af2d98617"
+    },
+    {
+      "path": "src/abi/mod.rs",
+      "sha256": "eb90c8ad81ec6f92b106f3a03d4d6f004758c832546b0d1f825ddfe391c75509"
+    },
+    {
+      "path": "src/lib.rs",
+      "sha256": "3ae48287c85cc5ced8c8c3f810d4906efae5154d3dbcf755760d6aa3b1b3e364"
+    },
+    {
+      "path": "substreams.yaml",
+      "sha256": "69129f42343943c19a010b7a88548a040528964ed99a98e7c2c2a11eb5ef116d"
+    }
+  ]
+}

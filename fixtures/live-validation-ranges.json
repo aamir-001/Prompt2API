@@ -1,0 +1,12 @@
+{
+  "base-mainnet": {
+    "golden": {
+      "startBlock": 50999146,
+      "stopBlockExclusive": 51000146
+    },
+    "smoke": {
+      "startBlock": 50999146,
+      "stopBlockExclusive": 50999246
+    }
+  }
+}
