@@ -9,8 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate deploy"
+    "prisma:generate": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js generate",
+    "prisma:migrate": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js migrate deploy"
   },
   "dependencies": {
     "@prisma/client": "6.19.3"

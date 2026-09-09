@@ -1,5 +1,4 @@
 import { PrismaClient } from "@indexloom/db";
-import type { PipelinePlanner } from "@indexloom/contracts";
 import pino from "pino";
 import { Pool } from "pg";
 import { DatasetService } from "@indexloom/dataset-service";
@@ -10,6 +9,7 @@ import { apiConfig } from "./config.js";
 import { PrismaControlStore } from "./store.js";
 import { SubstreamsRunner } from "@indexloom/substreams-runner";
 import { SinkManager } from "./sink-manager.js";
+import { GeminiPipelinePlanner } from "@indexloom/planner";
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? "info" });
 const prisma = new PrismaClient({ datasourceUrl: apiConfig.databaseUrl });
@@ -40,14 +40,17 @@ const sinkManager = new SinkManager({
 });
 const approvalService = new ApprovalService(store, sinkManager);
 
-const planner: PipelinePlanner = {
-  async plan() {
-    return {
-      status: "unsupported",
-      reason: "Gemini planning is added in Milestone 4",
-    };
+const planner = new GeminiPipelinePlanner({
+  apiKey: apiConfig.geminiApiKey,
+  model: apiConfig.llmModel,
+  timeoutMs: apiConfig.llmTimeoutMs,
+  promptVersion: apiConfig.plannerPromptVersion,
+  // Structured override annotations add a small trusted suffix to the 4,000-character user prompt.
+  maxPromptLength: 5_000,
+  recordMetric(metric) {
+    logger.info(metric, "Pipeline planner request completed");
   },
-};
+});
 
 await prisma.$connect();
 await datasetPool.query("SELECT 1");
@@ -62,9 +65,11 @@ const app = createApp({
   validationBlockCount: apiConfig.validationBlockCount,
   approvalService,
   datasetService,
+  operatorToken: apiConfig.operatorApiToken,
+  allowLocalOperator: apiConfig.nodeEnv !== "production",
 });
-const server = app.listen(apiConfig.port, () => {
-  logger.info({ port: apiConfig.port }, "IndexLoom API listening");
+const server = app.listen(apiConfig.port, apiConfig.host, () => {
+  logger.info({ host: apiConfig.host, port: apiConfig.port }, "IndexLoom API listening");
 });
 
 async function shutdown(signal: string): Promise<void> {

@@ -3,8 +3,10 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   PlannerResultSchema,
-  type PipelinePlanner,
+  normalizePipelineSpec,
+  parsePipelineSpec,
   type PipelineSpec,
+  type PipelinePlanner,
 } from "@indexloom/contracts";
 import { renderPipeline } from "@indexloom/generator";
 import { derivePipelineConfig } from "@indexloom/pipeline-config";
@@ -19,6 +21,11 @@ export interface PipelineServiceOptions {
   templateRoot: string;
   validationBlockCount: number;
   createPipelineId?: () => string;
+}
+
+export interface PlanOverrides {
+  contracts?: PipelineSpec["contracts"] | undefined;
+  startBlock?: number | null | undefined;
 }
 
 export class PipelineService {
@@ -39,7 +46,7 @@ export class PipelineService {
       options.createPipelineId ?? (() => `pl_${randomBytes(5).toString("hex")}`);
   }
 
-  async plan(prompt: string): Promise<PipelineSnapshot> {
+  async plan(prompt: string, overrides?: PlanOverrides): Promise<PipelineSnapshot> {
     if (prompt.trim().length === 0 || prompt.length > MAX_PROMPT_LENGTH) {
       throw new Error(`Prompt must contain 1-${MAX_PROMPT_LENGTH} characters`);
     }
@@ -48,7 +55,8 @@ export class PipelineService {
     await this.#store.transition(pipelineId, "PLANNING", "Planning started");
 
     try {
-      const result = PlannerResultSchema.parse(await this.#planner.plan(prompt));
+      const plannerPrompt = addStructuredOverrides(prompt, overrides);
+      const result = PlannerResultSchema.parse(await this.#planner.plan(plannerPrompt));
       if (result.status === "needs_clarification") {
         await this.#store.transition(
           pipelineId,
@@ -62,7 +70,8 @@ export class PipelineService {
           result.reason,
         );
       } else {
-        const config = derivePipelineConfig(result.spec, { pipelineId });
+        const spec = applyStructuredOverrides(result.spec, overrides);
+        const config = derivePipelineConfig(spec, { pipelineId });
         const derivedPlan: DerivedPlan = {
           importedPackage: "ethereum-common@v0.3.3",
           modules: [
@@ -140,6 +149,31 @@ export class PipelineService {
   listPipelines(): Promise<PipelineSnapshot[]> {
     return this.#store.listPipelines();
   }
+}
+
+function addStructuredOverrides(prompt: string, overrides?: PlanOverrides): string {
+  if (overrides === undefined) return prompt;
+  const supplied: Record<string, unknown> = {};
+  if (overrides.contracts !== undefined) supplied.contracts = overrides.contracts;
+  if (overrides.startBlock !== undefined && overrides.startBlock !== null) {
+    supplied.startBlock = overrides.startBlock;
+  }
+  if (Object.keys(supplied).length === 0) return prompt;
+  return `${prompt}\n\nTrusted builder fields (these override prose): ${JSON.stringify(supplied)}`;
+}
+
+function applyStructuredOverrides(
+  spec: PipelineSpec,
+  overrides?: PlanOverrides,
+): PipelineSpec {
+  const overridden = {
+    ...spec,
+    ...(overrides?.contracts === undefined ? {} : { contracts: overrides.contracts }),
+    ...(overrides?.startBlock === undefined || overrides.startBlock === null
+      ? {}
+      : { startBlock: overrides.startBlock }),
+  };
+  return normalizePipelineSpec(parsePipelineSpec(overridden));
 }
 
 export class StaticPipelinePlanner implements PipelinePlanner {

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export const PIPELINE_EVENTS = ["Deposit", "Withdraw"] as const;
 
-const ContractSchema = z.strictObject({
+export const PipelineContractSchema = z.strictObject({
   address: z
     .string()
     .regex(/^0x[0-9a-fA-F]{40}$/, "Expected a 20-byte 0x-prefixed address"),
@@ -17,8 +17,8 @@ export const PipelineSpecSchema = z.strictObject({
     id: z.literal("base-mainnet"),
   }),
   standard: z.literal("erc4626"),
-  contracts: z.array(ContractSchema).min(1).max(3),
-  startBlock: z.number().int().positive().safe(),
+  contracts: z.array(PipelineContractSchema).min(1).max(3),
+  startBlock: z.number().int().nonnegative().safe(),
   events: z.array(z.enum(PIPELINE_EVENTS)).min(1).max(2),
   outputs: z.strictObject({
     rawEvents: z.literal(true),

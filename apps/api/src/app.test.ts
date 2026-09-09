@@ -9,6 +9,7 @@ import { createApp } from "./app.js";
 import { ApprovalService } from "./approval-service.js";
 import { BuildWorker } from "./build-worker.js";
 import { MemoryControlStore } from "./memory-store.js";
+import { PlannerUnavailableError } from "@indexloom/planner";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const temporaryRoots: string[] = [];
@@ -141,6 +142,7 @@ describe("control API vertical slice", () => {
       validationBlockCount: 1_000,
       approvalService,
       datasetService,
+      allowLocalOperator: true,
       createPipelineId: () => "pl_test1234",
     });
 
@@ -232,6 +234,7 @@ describe("control API vertical slice", () => {
         async hourlyFlows() { return { items: [], nextCursor: null }; },
         async topDepositors() { return { items: [], nextCursor: null }; },
       },
+      allowLocalOperator: true,
       createPipelineId: () => "pl_test5678",
     });
 
@@ -240,5 +243,80 @@ describe("control API vertical slice", () => {
       .send({ prompt: "Track NFT sales" })
       .expect(422);
     expect(response.body.status).toBe("UNSUPPORTED_SCOPE");
+  });
+
+  it("returns 503 PLANNER_UNAVAILABLE without inventing a default plan", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-api-"));
+    temporaryRoots.push(artifactRoot);
+    const store = new MemoryControlStore();
+    const app = createApp({
+      store,
+      planner: {
+        async plan() {
+          throw new PlannerUnavailableError();
+        },
+      },
+      worker: {
+        async processNext() { return false; },
+        cancel() { return false; },
+      },
+      artifactRoot,
+      templateRoot: join(repositoryRoot, "templates", "erc4626"),
+      validationBlockCount: 1_000,
+      approvalService: {
+        async approve() { throw new Error("not used"); },
+      },
+      datasetService: {
+        async health() { return { indexedThroughBlock: null }; },
+        async events() { return { items: [], nextCursor: null }; },
+        async hourlyFlows() { return { items: [], nextCursor: null }; },
+        async topDepositors() { return { items: [], nextCursor: null }; },
+      },
+      allowLocalOperator: true,
+      createPipelineId: () => "pl_test9012",
+    });
+
+    const response = await request(app)
+      .post("/v1/pipelines/plan")
+      .send({ prompt: "Track a supported Base vault" })
+      .expect(503);
+    expect(response.body).toEqual({
+      error: {
+        code: "PLANNER_UNAVAILABLE",
+        message: "The pipeline planner is temporarily unavailable",
+      },
+    });
+    expect((await store.getPipeline("pl_test9012"))?.state).toBe("PLAN_FAILED");
+  });
+
+  it("does not expose pipeline creation anonymously", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-api-"));
+    temporaryRoots.push(artifactRoot);
+    const app = createApp({
+      store: new MemoryControlStore(),
+      planner: { async plan() { return { status: "unsupported", reason: "not used" }; } },
+      worker: { async processNext() { return false; }, cancel() { return false; } },
+      artifactRoot,
+      templateRoot: join(repositoryRoot, "templates", "erc4626"),
+      validationBlockCount: 1_000,
+      approvalService: { async approve() { throw new Error("not used"); } },
+      datasetService: {
+        async health() { return { indexedThroughBlock: null }; },
+        async events() { return { items: [], nextCursor: null }; },
+        async hourlyFlows() { return { items: [], nextCursor: null }; },
+        async topDepositors() { return { items: [], nextCursor: null }; },
+      },
+      operatorToken: "test-operator-token-with-at-least-32-characters",
+    });
+
+    await request(app)
+      .post("/v1/pipelines/plan")
+      .send({ prompt: "Track a vault" })
+      .expect(401, { error: { code: "OPERATOR_AUTH_REQUIRED" } });
+    await request(app)
+      .post("/v1/pipelines/plan")
+      .set("authorization", "Bearer test-operator-token-with-at-least-32-characters")
+      .send({ prompt: "Track a vault" })
+      .expect(422);
   });
 });

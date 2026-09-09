@@ -20,6 +20,7 @@ const validSpec = {
 describe("PipelineSpec", () => {
   it("accepts the golden Phase 1 specification", () => {
     expect(parsePipelineSpec(validSpec)).toEqual(validSpec);
+    expect(parsePipelineSpec({ ...validSpec, startBlock: 0 }).startBlock).toBe(0);
   });
 
   it("rejects unexpected fields", () => {

@@ -111,6 +111,23 @@ describe("SinkManager", () => {
     expect(deployment.processId).toBe(4321);
     expect(setupSchema).toHaveBeenCalledWith("dataset_pl_sink1234");
     expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(spawnMock.mock.calls[0]?.[1]).toEqual([
+      "sink",
+      "postgres",
+      "setup",
+      "./base-test-v0.1.0.spkg",
+    ]);
+    expect(spawnMock.mock.calls[1]?.[1]).toEqual([
+      "sink",
+      "postgres",
+      "./base-test-v0.1.0.spkg",
+      "-e",
+      "base-mainnet.streamingfast.io:443",
+      "-s",
+      "50999146",
+      "--batch-block-flush-interval",
+      "1",
+    ]);
     for (const call of spawnMock.mock.calls) {
       const args = call[1] as string[];
       const options = call[2] as { shell: boolean; env: NodeJS.ProcessEnv };
@@ -145,7 +162,17 @@ describe("SinkManager", () => {
         "postgresql://user:password@localhost/indexloom",
         "dataset_pl_1234abcd",
       ),
-    ).toContain("psql://user:password@localhost/indexloom?schemaName=dataset_pl_1234abcd");
+    ).toBe(
+      "psql://user:password@localhost/indexloom?sslmode=disable&schemaName=dataset_pl_1234abcd",
+    );
+    expect(
+      sinkInternals.sinkDsn(
+        "postgresql://user:password@db.example.com/indexloom?sslmode=require",
+        "dataset_pl_1234abcd",
+      ),
+    ).toBe(
+      "psql://user:password@db.example.com/indexloom?sslmode=require&schemaName=dataset_pl_1234abcd",
+    );
     expect(() =>
       sinkInternals.sinkDsn("sqlite://local.db", "dataset_pl_1234abcd"),
     ).toThrow(/PostgreSQL/);

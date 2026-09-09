@@ -5,9 +5,11 @@
 
 # Generated dependencies and build artifacts.
 node_modules/
+.pnpm-store/
 .next/
 dist/
 coverage/
+*.tsbuildinfo
 .tmp/
 target/
 *.spkg

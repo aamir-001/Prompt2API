@@ -35,6 +35,12 @@ function sinkDsn(databaseUrl: string, schemaName: string): string {
   if (parsed.protocol !== "postgres:" && parsed.protocol !== "psql:") {
     throw new Error("Dataset database URL must use PostgreSQL");
   }
+  if (
+    ["localhost", "127.0.0.1", "host.docker.internal"].includes(parsed.hostname) &&
+    !parsed.searchParams.has("sslmode")
+  ) {
+    parsed.searchParams.set("sslmode", "disable");
+  }
   parsed.searchParams.set("schemaName", schemaName);
   return parsed.toString();
 }
@@ -167,8 +173,6 @@ export class SinkManager {
         "postgres",
         "setup",
         packageArgument,
-        "-e",
-        this.#endpoint,
       ],
       {
         cwd,

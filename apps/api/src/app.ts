@@ -1,7 +1,13 @@
+import { timingSafeEqual } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import { ApprovalRequestSchema, type PipelinePlanner } from "@indexloom/contracts";
+import {
+  ApprovalRequestSchema,
+  PipelineContractSchema,
+  type PipelinePlanner,
+} from "@indexloom/contracts";
 import type { DatasetService } from "@indexloom/dataset-service";
+import { PlannerResponseError, PlannerUnavailableError } from "@indexloom/planner";
 import { ArtifactChangedError, type ApprovalService } from "./approval-service.js";
 import { canPipelineTransition } from "./state-machine.js";
 import type { BuildWorker } from "./build-worker.js";
@@ -12,8 +18,8 @@ const PlanRequestSchema = z.strictObject({
   prompt: z.string().min(1).max(4_000),
   overrides: z
     .strictObject({
-      contracts: z.array(z.unknown()).max(3).optional(),
-      startBlock: z.number().int().positive().safe().nullable().optional(),
+      contracts: z.array(PipelineContractSchema).min(1).max(3).optional(),
+      startBlock: z.number().int().nonnegative().safe().nullable().optional(),
     })
     .optional(),
 });
@@ -30,6 +36,8 @@ export interface CreateAppOptions {
     DatasetService,
     "health" | "events" | "hourlyFlows" | "topDepositors"
   >;
+  operatorToken?: string | undefined;
+  allowLocalOperator?: boolean | undefined;
   createPipelineId?: () => string;
 }
 
@@ -70,10 +78,24 @@ export function createApp(options: CreateAppOptions): express.Express {
     response.json({ status: "ok" });
   });
 
+  app.use("/v1/pipelines", (request, response, next) => {
+    const configuredToken = options.operatorToken;
+    if (configuredToken !== undefined) {
+      if (matchesBearerToken(request.header("authorization"), configuredToken)) {
+        next();
+        return;
+      }
+    } else if (options.allowLocalOperator === true && isLoopback(request.socket.remoteAddress)) {
+      next();
+      return;
+    }
+    response.status(401).json({ error: { code: "OPERATOR_AUTH_REQUIRED" } });
+  });
+
   app.post("/v1/pipelines/plan", async (request, response, next) => {
     try {
       const body = PlanRequestSchema.parse(request.body);
-      const pipeline = await service.plan(body.prompt);
+      const pipeline = await service.plan(body.prompt, body.overrides);
       response
         .status(pipeline.state === "UNSUPPORTED_SCOPE" ? 422 : 200)
         .json(publicPipeline(pipeline));
@@ -333,6 +355,18 @@ export function createApp(options: CreateAppOptions): express.Express {
         });
         return;
       }
+      if (error instanceof PlannerUnavailableError) {
+        response.status(503).json({
+          error: { code: error.code, message: error.message },
+        });
+        return;
+      }
+      if (error instanceof PlannerResponseError) {
+        response.status(502).json({
+          error: { code: "INVALID_PLANNER_RESPONSE", message: error.message },
+        });
+        return;
+      }
       if (error instanceof DatasetSyncingError) {
         response.status(503).json({
           error: { code: "DATASET_SYNCING", message: error.message },
@@ -351,6 +385,17 @@ export function createApp(options: CreateAppOptions): express.Express {
   );
 
   return app;
+}
+
+function isLoopback(address: string | undefined): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+function matchesBearerToken(header: string | undefined, expected: string): boolean {
+  if (header === undefined || !header.startsWith("Bearer ")) return false;
+  const actualBytes = Buffer.from(header.slice("Bearer ".length));
+  const expectedBytes = Buffer.from(expected);
+  return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
 
 class DatasetSyncingError extends Error {}

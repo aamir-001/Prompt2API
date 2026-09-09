@@ -67,9 +67,21 @@ model Pipeline {
   runs           PipelineRun[]
   deployments    Deployment[]
   transitions    PipelineTransition[]
+  apiProduct     ApiProduct?
 
   @@index([state, createdAt])
   @@map("pipelines")
+}
+
+model ApiProduct {
+  id         String   @id @default(cuid())
+  pipelineId String   @unique @db.VarChar(40)
+  pricing    Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@map("api_products")
 }
 
 model PipelineContract {

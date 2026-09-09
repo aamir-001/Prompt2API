@@ -9,6 +9,18 @@
   },
   "workspaceFolder": "/workspace/IndexLoom",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/IndexLoom,type=bind,consistency=cached",
+  "mounts": [
+    "source=indexloom-root-node-modules,target=/workspace/IndexLoom/node_modules,type=volume",
+    "source=indexloom-api-node-modules,target=/workspace/IndexLoom/apps/api/node_modules,type=volume",
+    "source=indexloom-web-node-modules,target=/workspace/IndexLoom/apps/web/node_modules,type=volume",
+    "source=indexloom-contracts-node-modules,target=/workspace/IndexLoom/packages/contracts/node_modules,type=volume",
+    "source=indexloom-dataset-service-node-modules,target=/workspace/IndexLoom/packages/dataset-service/node_modules,type=volume",
+    "source=indexloom-db-node-modules,target=/workspace/IndexLoom/packages/db/node_modules,type=volume",
+    "source=indexloom-generator-node-modules,target=/workspace/IndexLoom/packages/generator/node_modules,type=volume",
+    "source=indexloom-pipeline-config-node-modules,target=/workspace/IndexLoom/packages/pipeline-config/node_modules,type=volume",
+    "source=indexloom-planner-node-modules,target=/workspace/IndexLoom/packages/planner/node_modules,type=volume",
+    "source=indexloom-substreams-runner-node-modules,target=/workspace/IndexLoom/packages/substreams-runner/node_modules,type=volume"
+  ],
   "remoteUser": "vscode",
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
@@ -42,6 +54,5 @@
       ]
     }
   },
-  "postCreateCommand": "rustup target add wasm32-unknown-unknown && substreams --version && rustc --version && cargo --version && buf --version && node --version && pnpm --version"
+  "postCreateCommand": "bash .devcontainer/post-create.sh"
 }
-

@@ -8,6 +8,10 @@
     "node": ">=22.0.0"
   },
   "scripts": {
+    "dev:api": "pnpm --filter @indexloom/api dev",
+    "dev:web": "pnpm --filter @indexloom/web dev",
+    "db:generate": "pnpm --filter @indexloom/db prisma:generate",
+    "db:migrate": "pnpm --filter @indexloom/db prisma:migrate",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",

@@ -31,8 +31,11 @@ export class ApprovalService {
     const approval = ApprovalRequestSchema.parse(input);
     const pipeline = await this.store.getPipeline(pipelineId);
     if (pipeline === null) throw new Error("Pipeline not found");
-    if (pipeline.state !== "AWAITING_APPROVAL") {
-      throw new Error(`Pipeline is not awaiting approval: ${pipeline.state}`);
+    if (
+      pipeline.state !== "AWAITING_APPROVAL" &&
+      pipeline.state !== "DEPLOYMENT_FAILED"
+    ) {
+      throw new Error(`Pipeline cannot be deployed from state: ${pipeline.state}`);
     }
     const version = pipeline.versions.find(
       (candidate) => candidate.version === pipeline.activeVersion,
