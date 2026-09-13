@@ -1,4 +1,4 @@
-import type { PipelineState } from "@indexloom/contracts";
+import type { PipelineState } from "@prompt2api/contracts";
 
 const transitions: Readonly<Record<PipelineState, readonly PipelineState[]>> = {
   DRAFT: ["PLANNING", "CANCELLED"],

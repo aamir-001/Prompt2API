@@ -3,7 +3,11 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DatasetService } from "./index.js";
 
-const databaseUrl = process.env.TEST_DATASET_DATABASE_URL;
+const databaseUrl = process.env.TEST_DATASET_DATABASE_URL ?? (
+  process.env.RUN_DATABASE_INTEGRATION === "1"
+    ? process.env.DATASET_DATABASE_URL
+    : undefined
+);
 const describeDatabase = databaseUrl === undefined ? describe.skip : describe;
 const schemaName = `dataset_pl_${randomBytes(5).toString("hex")}`;
 const quotedSchema = `"${schemaName}"`;

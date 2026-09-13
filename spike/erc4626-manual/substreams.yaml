@@ -1,10 +1,10 @@
 specVersion: v0.1.0
 
 package:
-  name: indexloom_erc4626_manual
+  name: prompt2api_erc4626_manual
   version: v0.1.0
-  url: https://github.com/aamir/indexloom
-  description: Manual IndexLoom Phase 1 Base ERC-4626 feasibility package
+  url: https://github.com/aamir/prompt2api
+  description: Manual Prompt2API Phase 1 Base ERC-4626 feasibility package
 
 imports:
   ethereum_common: https://spkg.io/v1/packages/ethereum-common/v0.3.3
@@ -14,7 +14,7 @@ network: base
 
 protobuf:
   files:
-    - indexloom/erc4626/v1/vault.proto
+    - prompt2api/erc4626/v1/vault.proto
   importPaths:
     - ./proto
   excludePaths:
@@ -28,7 +28,7 @@ protobuf:
 binaries:
   default:
     type: wasm/rust-v1
-    file: ./target/wasm32-unknown-unknown/release/indexloom_erc4626_manual.wasm
+    file: ./target/wasm32-unknown-unknown/release/prompt2api_erc4626_manual.wasm
 
 modules:
   - name: map_vault_events
@@ -37,7 +37,7 @@ modules:
     inputs:
       - map: ethereum_common:filtered_events
     output:
-      type: proto:indexloom.erc4626.v1.VaultEvents
+      type: proto:prompt2api.erc4626.v1.VaultEvents
 
   - name: db_out
     kind: map

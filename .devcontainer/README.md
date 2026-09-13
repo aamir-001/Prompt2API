@@ -1,7 +1,7 @@
-# IndexLoom development container
+# Prompt2API development container
 
 This container provides the Linux toolchain required to build and run the
-IndexLoom Phase 1 Substreams pipeline:
+Prompt2API Phase 1 Substreams pipeline:
 
 - Substreams CLI 1.22.0
 - Rust with the `wasm32-unknown-unknown` target
@@ -28,8 +28,8 @@ Docker Desktop exposes the Windows host as `host.docker.internal`. When the
 API runs inside this container, use that hostname in both database URLs:
 
 ```dotenv
-DATABASE_URL=postgresql://postgres:YOUR_URL_ENCODED_PASSWORD@host.docker.internal:5432/indexloom?sslmode=disable
-DATASET_DATABASE_URL=postgresql://postgres:YOUR_URL_ENCODED_PASSWORD@host.docker.internal:5432/indexloom?sslmode=disable
+DATABASE_URL=postgresql://postgres:YOUR_URL_ENCODED_PASSWORD@host.docker.internal:5432/prompt2api?sslmode=disable
+DATASET_DATABASE_URL=postgresql://postgres:YOUR_URL_ENCODED_PASSWORD@host.docker.internal:5432/prompt2api?sslmode=disable
 ```
 
 Do not commit `.env` or copy credentials into this directory.

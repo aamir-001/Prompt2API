@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package indexloom.erc4626.v1;
+package prompt2api.erc4626.v1;
 
 message Deposit {
   string event_id = 1;

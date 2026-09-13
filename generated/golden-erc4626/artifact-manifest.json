@@ -9,15 +9,15 @@
   "files": [
     {
       "path": "Cargo.lock",
-      "sha256": "e39dfc33d56000900350f6a6afc021e43d091881502b398f7ec25adb7f7db2ae"
+      "sha256": "fce034eb05d30c38f26bd75a380b11b5c0f71847deb08be13019fdec9522dd70"
     },
     {
       "path": "Cargo.toml",
-      "sha256": "c049f6a114161aa2f44985323bf9c8f44c1cc831f4f3c51e1400a76fb1fc16ac"
+      "sha256": "164e53438f908d7ceb4c56addc7c9c9b1048462bade6ac2823bcb1315441ed2d"
     },
     {
       "path": "README.generated.md",
-      "sha256": "d1d58aa00a66c1d432259b951ea300a47e37784f64a08c933d7b2421dc12d288"
+      "sha256": "d02fa160b857c5fb1258ddf7ad9dc43d7c1c454294f53d1e1b8659a34a22c630"
     },
     {
       "path": "abi/erc4626.json",
@@ -29,15 +29,15 @@
     },
     {
       "path": "build.rs",
-      "sha256": "6dd43308ed0babaf6e1fd1b50a35cfa2c18d9dd26d6315570c436a297c3736ef"
+      "sha256": "4b8651c992e2d9f58842986484987ff75e03546e3fd36f41a3de0f33be8069e7"
     },
     {
       "path": "pipeline-spec.json",
       "sha256": "eda5e87a2ad03784b5d0f676a619b8b38576e12135617c88dbdfd7a6cad5704a"
     },
     {
-      "path": "proto/indexloom/erc4626/v1/vault.proto",
-      "sha256": "9ef8924fe605f2a397bc59496c3744b9420acde7d82b8db39e1b8e96ded631b8"
+      "path": "proto/prompt2api/erc4626/v1/vault.proto",
+      "sha256": "8e0c0aed16052ecbf800853797984a620322d117cd82b19aa147baae67ca9ca4"
     },
     {
       "path": "rust-toolchain.toml",
@@ -53,11 +53,11 @@
     },
     {
       "path": "src/lib.rs",
-      "sha256": "3ae48287c85cc5ced8c8c3f810d4906efae5154d3dbcf755760d6aa3b1b3e364"
+      "sha256": "3724036667de33744c22f91f1cf5d4d9f0b9cf0c4de3d0b7d7591d55d130b9f6"
     },
     {
       "path": "substreams.yaml",
-      "sha256": "69129f42343943c19a010b7a88548a040528964ed99a98e7c2c2a11eb5ef116d"
+      "sha256": "41041eaa8ae69f311aa0792bca9edc57edf43b6f9ac9538ce331b9cdf3931e32"
     }
   ]
 }

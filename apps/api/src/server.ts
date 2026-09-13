@@ -1,15 +1,16 @@
-import { PrismaClient } from "@indexloom/db";
+import { PrismaClient } from "@prompt2api/db";
 import pino from "pino";
 import { Pool } from "pg";
-import { DatasetService } from "@indexloom/dataset-service";
+import { DatasetService } from "@prompt2api/dataset-service";
 import { createApp } from "./app.js";
 import { ApprovalService } from "./approval-service.js";
 import { BuildWorker } from "./build-worker.js";
 import { apiConfig } from "./config.js";
 import { PrismaControlStore } from "./store.js";
-import { SubstreamsRunner } from "@indexloom/substreams-runner";
+import { SubstreamsRunner } from "@prompt2api/substreams-runner";
 import { SinkManager } from "./sink-manager.js";
-import { GeminiPipelinePlanner } from "@indexloom/planner";
+import { GeminiPipelinePlanner } from "@prompt2api/planner";
+import { createDatasetPaymentGate } from "./payment.js";
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? "info" });
 const prisma = new PrismaClient({ datasourceUrl: apiConfig.databaseUrl });
@@ -38,7 +39,8 @@ const sinkManager = new SinkManager({
   datasetDatabaseUrl: apiConfig.datasetDatabaseUrl,
   setupTimeoutMs: apiConfig.buildTimeoutMs,
 });
-const approvalService = new ApprovalService(store, sinkManager);
+const paymentGate = createDatasetPaymentGate(apiConfig.payment);
+const approvalService = new ApprovalService(store, sinkManager, paymentGate?.metadata);
 
 const planner = new GeminiPipelinePlanner({
   apiKey: apiConfig.geminiApiKey,
@@ -54,6 +56,13 @@ const planner = new GeminiPipelinePlanner({
 
 await prisma.$connect();
 await datasetPool.query("SELECT 1");
+await paymentGate?.ready;
+if (paymentGate !== undefined) {
+  const livePipelines = (await store.listPipelines()).filter(({ state }) => state === "LIVE");
+  await Promise.all(
+    livePipelines.map(({ id }) => store.upsertApiProduct(id, paymentGate.metadata)),
+  );
+}
 await sinkManager.restartLiveDeployments();
 await worker.start();
 const app = createApp({
@@ -67,13 +76,14 @@ const app = createApp({
   datasetService,
   operatorToken: apiConfig.operatorApiToken,
   allowLocalOperator: apiConfig.nodeEnv !== "production",
+  paymentGate,
 });
 const server = app.listen(apiConfig.port, apiConfig.host, () => {
-  logger.info({ host: apiConfig.host, port: apiConfig.port }, "IndexLoom API listening");
+  logger.info({ host: apiConfig.host, port: apiConfig.port }, "Prompt2API API listening");
 });
 
 async function shutdown(signal: string): Promise<void> {
-  logger.info({ signal }, "Shutting down IndexLoom API");
+  logger.info({ signal }, "Shutting down Prompt2API API");
   worker.stop();
   await sinkManager.stopAll();
   server.close();

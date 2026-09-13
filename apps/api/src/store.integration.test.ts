@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
-import type { PipelineSpec } from "@indexloom/contracts";
-import { PrismaClient } from "@indexloom/db";
+import type { PipelineSpec } from "@prompt2api/contracts";
+import { PrismaClient } from "@prompt2api/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaControlStore, type DerivedPlan } from "./store.js";
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
+const databaseUrl = process.env.TEST_DATABASE_URL ?? (
+  process.env.RUN_DATABASE_INTEGRATION === "1" ? process.env.DATABASE_URL : undefined
+);
 const describeDatabase = databaseUrl === undefined ? describe.skip : describe;
 const pipelineId = `pl_${randomBytes(5).toString("hex")}`;
 const prisma =
@@ -58,6 +60,18 @@ describeDatabase("PrismaControlStore", () => {
       derivedPlan,
       `postgres-queue-test-${pipelineId.slice(3)}`,
     );
+    await store.upsertApiProduct(pipelineId, {
+      enabled: true,
+      protocol: "x402",
+      version: 2,
+      network: "hedera:testnet",
+      scheme: "exact",
+      asset: "0.0.0",
+      amount: "100000",
+      unit: "tinybar",
+      payTo: "0.0.10442846",
+      protectedResources: ["events", "hourlyFlows"],
+    });
     const queued = await store.enqueueBuild({
       pipelineId,
       version: 1,
@@ -74,6 +88,11 @@ describeDatabase("PrismaControlStore", () => {
     const pipeline = await store.getPipeline(pipelineId);
     expect(pipeline?.state).toBe("FAILED_INTERRUPTED");
     expect(pipeline?.runs[0]?.status).toBe("FAILED_INTERRUPTED");
+    expect(pipeline?.pricing).toEqual(expect.objectContaining({
+      protocol: "x402",
+      amount: "100000",
+      payTo: "0.0.10442846",
+    }));
     expect(pipeline?.transitions.map(({ toState }) => toState)).toEqual([
       "DRAFT",
       "PLANNING",

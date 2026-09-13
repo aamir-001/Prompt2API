@@ -1,5 +1,5 @@
 {
-  "name": "@indexloom/planner",
+  "name": "@prompt2api/planner",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@google/genai": "2.21.0",
-    "@indexloom/contracts": "workspace:*",
+    "@prompt2api/contracts": "workspace:*",
     "zod": "4.5.4"
   }
 }

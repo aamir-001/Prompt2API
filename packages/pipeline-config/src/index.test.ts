@@ -41,6 +41,29 @@ describe("derivePipelineConfig", () => {
     expect(result.schemaName).toBe("dataset_pl_1234abcd");
   });
 
+  it("safely composes two vaults into one grouped filter", () => {
+    const secondAddress = "0xBeeFF2490FeFfa212FaC2F6553682C219e6A8845";
+    const result = derivePipelineConfig(
+      {
+        ...spec,
+        contracts: [
+          ...spec.contracts,
+          { address: secondAddress, label: "Vault B" },
+        ],
+      },
+      { pipelineId: "pl_1234abcd" },
+    );
+
+    expect(result.normalizedSpec.contracts.map(({ address }) => address)).toEqual([
+      mixedCaseAddress.toLowerCase(),
+      secondAddress.toLowerCase(),
+    ]);
+    expect(result.filter).toBe(
+      `(evt_addr:${mixedCaseAddress.toLowerCase()} || evt_addr:${secondAddress.toLowerCase()}) &&\n` +
+        `(evt_sig:${ERC4626_EVENT_TOPICS.Deposit} || evt_sig:${ERC4626_EVENT_TOPICS.Withdraw})`,
+    );
+  });
+
   it("is deterministic", () => {
     const first = derivePipelineConfig(spec, { pipelineId: "pl_1234abcd" });
     const second = derivePipelineConfig(spec, { pipelineId: "pl_1234abcd" });

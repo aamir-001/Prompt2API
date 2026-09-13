@@ -1,18 +1,25 @@
 import { timingSafeEqual } from "node:crypto";
-import express, { type NextFunction, type Request, type Response } from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from "express";
 import { z } from "zod";
 import {
   ApprovalRequestSchema,
   PipelineContractSchema,
   type PipelinePlanner,
-} from "@indexloom/contracts";
-import type { DatasetService } from "@indexloom/dataset-service";
-import { PlannerResponseError, PlannerUnavailableError } from "@indexloom/planner";
+} from "@prompt2api/contracts";
+import type { DatasetService } from "@prompt2api/dataset-service";
+import { PlannerResponseError, PlannerUnavailableError } from "@prompt2api/planner";
 import { ArtifactChangedError, type ApprovalService } from "./approval-service.js";
 import { canPipelineTransition } from "./state-machine.js";
 import type { BuildWorker } from "./build-worker.js";
 import { PipelineService } from "./pipeline-service.js";
 import type { ControlStore, PipelineSnapshot } from "./store.js";
+import type { DatasetPaymentGate } from "./payment.js";
+import { NO_ACTIVITY_IN_SAMPLE } from "./validation-outcome.js";
 
 const PlanRequestSchema = z.strictObject({
   prompt: z.string().min(1).max(4_000),
@@ -22,6 +29,10 @@ const PlanRequestSchema = z.strictObject({
       startBlock: z.number().int().nonnegative().safe().nullable().optional(),
     })
     .optional(),
+});
+
+const RetryRequestSchema = z.strictObject({
+  startBlock: z.number().int().nonnegative().safe().optional(),
 });
 
 export interface CreateAppOptions {
@@ -36,12 +47,20 @@ export interface CreateAppOptions {
     DatasetService,
     "health" | "events" | "hourlyFlows" | "topDepositors"
   >;
+  paymentGate?: DatasetPaymentGate | undefined;
   operatorToken?: string | undefined;
   allowLocalOperator?: boolean | undefined;
   createPipelineId?: () => string;
 }
 
 function publicPipeline(pipeline: PipelineSnapshot): Record<string, unknown> {
+  const latestTransition = pipeline.transitions.at(-1);
+  const activeVersion = pipeline.versions.find(
+    ({ version }) => version === pipeline.activeVersion,
+  );
+  const hasNoActivity =
+    pipeline.state === "VALIDATION_FAILED" &&
+    latestTransition?.reason.startsWith(`${NO_ACTIVITY_IN_SAMPLE}:`) === true;
   return {
     pipelineId: pipeline.id,
     status: pipeline.state,
@@ -50,11 +69,36 @@ function publicPipeline(pipeline: PipelineSnapshot): Record<string, unknown> {
     derivedPlan: pipeline.derivedPlan,
     slug: pipeline.slug,
     activeVersion: pipeline.activeVersion,
+    pricing: pipeline.pricing,
     contracts: pipeline.contracts,
     versions: pipeline.versions,
     transitions: pipeline.transitions,
+    validationOutcome: hasNoActivity
+      ? {
+          status: NO_ACTIVITY_IN_SAMPLE,
+          message: latestTransition!.reason.slice(NO_ACTIVITY_IN_SAMPLE.length + 1).trim(),
+          startBlock: activeVersion?.validationStartBlock ?? null,
+          stopBlock: activeVersion?.validationStopBlock ?? null,
+        }
+      : null,
     createdAt: pipeline.createdAt,
     updatedAt: pipeline.updatedAt,
+  };
+}
+
+function publicRun(run: PipelineSnapshot["runs"][number]): Record<string, unknown> {
+  const commandLabels: Record<string, string> = {
+    BUILD: "substreams build/pack",
+    INFO: "substreams info",
+    GRAPH: "substreams graph",
+    VALIDATION: "substreams run",
+  };
+  return {
+    ...run,
+    commandLabel: commandLabels[run.stage] ?? "trusted runner stage",
+    durationMs: run.startedAt === null
+      ? null
+      : Math.max(0, (run.endedAt ?? new Date()).getTime() - run.startedAt.getTime()),
   };
 }
 
@@ -140,7 +184,7 @@ export function createApp(options: CreateAppOptions): express.Express {
       }
       response.json({
         pipelineId: pipeline.id,
-        runs: pipeline.runs,
+        runs: pipeline.runs.map(publicRun),
       });
     } catch (error) {
       next(error);
@@ -191,7 +235,8 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   app.post("/v1/pipelines/:pipelineId/retry", async (request, response, next) => {
     try {
-      const pipeline = await service.queueBuild(request.params.pipelineId);
+      const retry = RetryRequestSchema.parse(request.body ?? {});
+      const pipeline = await service.queueBuild(request.params.pipelineId, retry);
       response.status(202).json({
         pipelineId: pipeline.id,
         status: pipeline.state,
@@ -247,6 +292,7 @@ export function createApp(options: CreateAppOptions): express.Express {
         standard: "erc4626",
         contracts: pipeline.contracts,
         events: pipeline.spec?.events ?? [],
+        payment: options.paymentGate?.metadata ?? { enabled: false },
       });
     } catch (error) {
       next(error);
@@ -287,6 +333,11 @@ export function createApp(options: CreateAppOptions): express.Express {
           ],
           topDepositors: ["ownerAddress", "depositedAssetsRaw", "depositCount"],
         },
+        access: {
+          free: ["meta", "schema", "health"],
+          paid: options.paymentGate?.metadata.protectedResources ?? [],
+        },
+        payment: options.paymentGate?.metadata ?? { enabled: false },
       });
     } catch (error) {
       next(error);
@@ -311,18 +362,36 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
   });
 
-  for (const [route, method] of [
-    ["/v1/datasets/:slug/events", "events"],
-    ["/v1/datasets/:slug/flows/hourly", "hourlyFlows"],
-    ["/v1/datasets/:slug/top-depositors", "topDepositors"],
+  for (const [route, method, paid] of [
+    ["/v1/datasets/:slug/events", "events", true],
+    ["/v1/datasets/:slug/flows/hourly", "hourlyFlows", true],
+    ["/v1/datasets/:slug/top-depositors", "topDepositors", false],
   ] as const) {
-    app.get(route, async (request, response, next) => {
+    const handlers: RequestHandler[] = [];
+    if (paid && options.paymentGate !== undefined) {
+      handlers.push(async (request, response, next) => {
+        try {
+          response.locals.liveDataset = await requireLiveDataset(
+            options.store,
+            options.datasetService,
+            requiredRouteParam(request.params.slug, "slug"),
+          );
+          next();
+        } catch (error) {
+          next(error);
+        }
+      });
+      handlers.push(options.paymentGate.middleware);
+    }
+    handlers.push(async (request, response, next) => {
       try {
-        const pipeline = await requireLiveDataset(
-          options.store,
-          options.datasetService,
-          request.params.slug,
-        );
+        const pipeline = (response.locals.liveDataset as
+          | Awaited<ReturnType<typeof requireLiveDataset>>
+          | undefined) ?? await requireLiveDataset(
+            options.store,
+            options.datasetService,
+            requiredRouteParam(request.params.slug, "slug"),
+          );
         const page = await options.datasetService[method](
           pipeline.derivedPlan!.schemaName,
           request.query,
@@ -339,6 +408,7 @@ export function createApp(options: CreateAppOptions): express.Express {
         next(error);
       }
     });
+    app.get(route, ...handlers);
   }
 
   app.use(
@@ -389,6 +459,13 @@ export function createApp(options: CreateAppOptions): express.Express {
 
 function isLoopback(address: string | undefined): boolean {
   return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+function requiredRouteParam(value: string | string[] | undefined, name: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Missing route parameter: ${name}`);
+  }
+  return value;
 }
 
 function matchesBearerToken(header: string | undefined, expected: string): boolean {

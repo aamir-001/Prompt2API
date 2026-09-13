@@ -8,11 +8,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
-import type { PipelineSpec } from "@indexloom/contracts";
+import type { PipelineSpec } from "@prompt2api/contracts";
 import {
   derivePipelineConfig,
   type DerivedPipelineConfig,
-} from "@indexloom/pipeline-config";
+} from "@prompt2api/pipeline-config";
 import { z } from "zod";
 
 export const TEMPLATE_VERSION = "v1";
@@ -23,7 +23,7 @@ export const FIXED_TEMPLATE_FILES = [
   "rust-toolchain.toml",
   "buf.gen.yaml",
   "build.rs",
-  "proto/indexloom/erc4626/v1/vault.proto",
+  "proto/prompt2api/erc4626/v1/vault.proto",
   "src/lib.rs",
   "src/abi/mod.rs",
   "abi/erc4626.json",

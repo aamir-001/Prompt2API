@@ -1,0 +1,19 @@
+{
+  "name": "@prompt2api/consumer-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx src/index.ts",
+    "test:live": "tsx src/live-test.ts"
+  },
+  "dependencies": {
+    "@x402/core": "2.25.0",
+    "@x402/fetch": "2.25.0",
+    "@x402/hedera": "2.25.0",
+    "dotenv": "17.4.2",
+    "zod": "4.5.4"
+  }
+}

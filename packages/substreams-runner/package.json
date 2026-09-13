@@ -1,5 +1,5 @@
 {
-  "name": "@indexloom/substreams-runner",
+  "name": "@prompt2api/substreams-runner",
   "version": "0.1.0",
   "private": true,
   "type": "module",

@@ -1,5 +1,5 @@
 {
-  "name": "@indexloom/pipeline-config",
+  "name": "@prompt2api/pipeline-config",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@indexloom/contracts": "workspace:*",
+    "@prompt2api/contracts": "workspace:*",
     "viem": "2.55.11"
   }
 }

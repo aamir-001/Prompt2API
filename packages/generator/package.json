@@ -1,5 +1,5 @@
 {
-  "name": "@indexloom/generator",
+  "name": "@prompt2api/generator",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@indexloom/contracts": "workspace:*",
-    "@indexloom/pipeline-config": "workspace:*",
+    "@prompt2api/contracts": "workspace:*",
+    "@prompt2api/pipeline-config": "workspace:*",
     "zod": "4.5.4"
   }
 }

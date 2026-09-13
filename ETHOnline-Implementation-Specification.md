@@ -5,7 +5,7 @@ Status: Ready to implement
 Audience: Coding agent and project maintainers  
 Last source verification: 2026-09-08  
 Implementation order: Complete Phase 1 before beginning Phase 2  
-Working project name: `IndexLoom`
+Working project name: `Prompt2API`
 
 ## Product definition
 
@@ -421,7 +421,7 @@ Input:
 
 Output:
 
-- `proto:indexloom.erc4626.v1.VaultEvents`
+- `proto:prompt2api.erc4626.v1.VaultEvents`
 
 Responsibilities:
 
@@ -484,7 +484,7 @@ network: base-mainnet
 
 protobuf:
   files:
-    - indexloom/erc4626/v1/vault.proto
+    - prompt2api/erc4626/v1/vault.proto
   importPaths:
     - ./proto
 
@@ -499,7 +499,7 @@ modules:
     inputs:
       - map: ethereum_common:filtered_events
     output:
-      type: proto:indexloom.erc4626.v1.VaultEvents
+      type: proto:prompt2api.erc4626.v1.VaultEvents
 
   - name: db_out
     kind: map
@@ -535,7 +535,7 @@ templates/erc4626/
 ├── substreams.yaml.tmpl
 ├── buf.gen.yaml
 ├── proto/
-│   └── indexloom/erc4626/v1/vault.proto
+│   └── prompt2api/erc4626/v1/vault.proto
 ├── src/
 │   └── lib.rs
 ├── abi/
@@ -1016,7 +1016,7 @@ Do not store Graph tokens, database passwords, or future Hedera private keys.
 │       ├── rust-toolchain.toml
 │       ├── substreams.yaml.tmpl
 │       ├── buf.gen.yaml
-│       ├── proto/indexloom/erc4626/v1/vault.proto
+│       ├── proto/prompt2api/erc4626/v1/vault.proto
 │       ├── src/lib.rs
 │       ├── abi/erc4626.json
 │       ├── schema.sql

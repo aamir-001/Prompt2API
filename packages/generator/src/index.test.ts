@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { PipelineSpec } from "@indexloom/contracts";
+import type { PipelineSpec } from "@prompt2api/contracts";
 import {
   FIXED_TEMPLATE_FILES,
   renderPipeline,
@@ -35,7 +35,7 @@ const spec = {
 } satisfies PipelineSpec;
 
 async function render(subdirectory: string): Promise<RenderedPipeline> {
-  const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-render-"));
+  const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-render-"));
   temporaryRoots.push(artifactRoot);
   return renderPipeline({
     spec,
@@ -107,11 +107,14 @@ describe("trusted ERC-4626 renderer", () => {
     expect(manifest).toContain("network: base");
     expect(manifest).toContain("ethereum-common/v0.3.3");
     expect(manifest).toContain("evt_addr:0x050ce30b927da55177a4914ec73480238bad56f0");
+    expect(manifest).toContain("evt_addr:0xbeeff2490feffa212fac2f6553682c219e6a8845");
+    expect(manifest).toContain("map: ethereum_common:filtered_events");
+    expect(manifest).toContain("type: proto:prompt2api.erc4626.v1.VaultEvents");
     expect(manifest).not.toContain("{{");
   });
 
   it("rejects path traversal and non-empty destinations", async () => {
-    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-render-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-render-"));
     temporaryRoots.push(artifactRoot);
     const common = {
       spec,

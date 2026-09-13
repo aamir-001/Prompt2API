@@ -1,4 +1,4 @@
-import type { PipelineSpec, PipelineState } from "@indexloom/contracts";
+import type { PipelineSpec, PipelineState } from "@prompt2api/contracts";
 import { randomUUID } from "node:crypto";
 import { assertPipelineTransition } from "./state-machine.js";
 import type {
@@ -26,6 +26,7 @@ export class MemoryControlStore implements ControlStore {
       derivedPlan: null,
       slug: null,
       activeVersion: 0,
+      pricing: null,
       contracts: [],
       versions: [],
       runs: [],
@@ -70,6 +71,15 @@ export class MemoryControlStore implements ControlStore {
     this.#transition(this.#required(pipelineId), to, reason);
   }
 
+  async updatePipelineSpec(
+    pipelineId: string,
+    spec: PipelineSpec,
+  ): Promise<void> {
+    const pipeline = this.#required(pipelineId);
+    pipeline.spec = structuredClone(spec);
+    pipeline.updatedAt = new Date();
+  }
+
   async getPipeline(pipelineId: string): Promise<PipelineSnapshot | null> {
     const pipeline = this.#pipelines.get(pipelineId);
     return pipeline === undefined ? null : structuredClone(pipeline);
@@ -86,6 +96,13 @@ export class MemoryControlStore implements ControlStore {
       (candidate) => candidate.slug === slug,
     );
     return pipeline === undefined ? null : structuredClone(pipeline);
+  }
+
+  async upsertApiProduct(
+    pipelineId: string,
+    pricing: import("./store.js").ApiProductPricing,
+  ): Promise<void> {
+    this.#required(pipelineId).pricing = structuredClone(pricing);
   }
 
   async enqueueBuild(input: EnqueueBuildInput): Promise<ClaimedBuildJob> {
@@ -122,6 +139,8 @@ export class MemoryControlStore implements ControlStore {
       stderr: null,
       errorCode: null,
       errorMessage: null,
+      startedAt: null,
+      endedAt: null,
       createdAt: new Date(),
     });
     return { runId, pipelineId: input.pipelineId, version: input.version };
@@ -141,6 +160,7 @@ export class MemoryControlStore implements ControlStore {
     const candidate = candidates[0];
     if (candidate === undefined) return null;
     candidate.run.status = "RUNNING";
+    candidate.run.startedAt = new Date();
     return {
       runId: candidate.run.id,
       pipelineId: candidate.pipeline.id,
@@ -165,6 +185,8 @@ export class MemoryControlStore implements ControlStore {
       stderr: null,
       errorCode: null,
       errorMessage: null,
+      startedAt: new Date(),
+      endedAt: null,
       createdAt: new Date(),
     });
     return runId;
@@ -181,6 +203,7 @@ export class MemoryControlStore implements ControlStore {
     run.stderr = input.stderr ?? null;
     run.errorCode = input.errorCode ?? null;
     run.errorMessage = input.errorMessage ?? null;
+    run.endedAt = new Date();
   }
 
   async saveValidationArtifacts(input: ValidationArtifacts): Promise<void> {
@@ -200,6 +223,7 @@ export class MemoryControlStore implements ControlStore {
           run.status = "FAILED_INTERRUPTED";
           run.errorCode = "PROCESS_INTERRUPTED";
           run.errorMessage = "API process restarted while this job was running";
+          run.endedAt = new Date();
           count += 1;
         }
       }
@@ -220,6 +244,7 @@ export class MemoryControlStore implements ControlStore {
         run.status = "CANCELLED";
         run.errorCode = "CANCELLED";
         run.errorMessage = "Cancelled by operator";
+        run.endedAt = new Date();
       }
     }
   }

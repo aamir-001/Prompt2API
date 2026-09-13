@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import type { PipelineSpec } from "@indexloom/contracts";
+import type { PipelineSpec } from "@prompt2api/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryControlStore } from "./memory-store.js";
 import { SinkManager, sinkInternals } from "./sink-manager.js";
@@ -32,7 +32,7 @@ function child(pid: number): ChildProcessWithoutNullStreams {
 
 describe("SinkManager", () => {
   it("sets up and starts the exact built package with isolated secrets", async () => {
-    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-sink-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-sink-"));
     temporaryRoots.push(artifactRoot);
     const projectDirectory = join(artifactRoot, "pl_sink1234", "1");
     await mkdir(projectDirectory, { recursive: true });
@@ -92,7 +92,7 @@ describe("SinkManager", () => {
       executable: "substreams",
       endpoint: "base-mainnet.streamingfast.io:443",
       apiToken: "graph-secret",
-      datasetDatabaseUrl: "postgresql://user:password@localhost/indexloom",
+      datasetDatabaseUrl: "postgresql://user:password@localhost/prompt2api",
       setupTimeoutMs: 1_000,
       baseEnvironment: {
         PATH: "safe-path",
@@ -146,7 +146,7 @@ describe("SinkManager", () => {
       artifactRoot,
       endpoint: "base-mainnet.streamingfast.io:443",
       apiToken: "graph-secret",
-      datasetDatabaseUrl: "postgresql://user:password@localhost/indexloom",
+      datasetDatabaseUrl: "postgresql://user:password@localhost/prompt2api",
       setupTimeoutMs: 1_000,
       spawnImplementation: restartSpawn as unknown as typeof spawn,
     });
@@ -159,19 +159,19 @@ describe("SinkManager", () => {
   it("normalizes only PostgreSQL DSNs and validates schema names", () => {
     expect(
       sinkInternals.sinkDsn(
-        "postgresql://user:password@localhost/indexloom",
+        "postgresql://user:password@localhost/prompt2api",
         "dataset_pl_1234abcd",
       ),
     ).toBe(
-      "psql://user:password@localhost/indexloom?sslmode=disable&schemaName=dataset_pl_1234abcd",
+      "psql://user:password@localhost/prompt2api?sslmode=disable&schemaName=dataset_pl_1234abcd",
     );
     expect(
       sinkInternals.sinkDsn(
-        "postgresql://user:password@db.example.com/indexloom?sslmode=require",
+        "postgresql://user:password@db.example.com/prompt2api?sslmode=require",
         "dataset_pl_1234abcd",
       ),
     ).toBe(
-      "psql://user:password@db.example.com/indexloom?sslmode=require&schemaName=dataset_pl_1234abcd",
+      "psql://user:password@db.example.com/prompt2api?sslmode=require&schemaName=dataset_pl_1234abcd",
     );
     expect(() =>
       sinkInternals.sinkDsn("sqlite://local.db", "dataset_pl_1234abcd"),

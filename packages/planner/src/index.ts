@@ -10,7 +10,7 @@ import {
   parsePipelineSpec,
   type PipelinePlanner,
   type PlannerResult,
-} from "@indexloom/contracts";
+} from "@prompt2api/contracts";
 import { z } from "zod";
 
 export const DEFAULT_MAX_PROMPT_LENGTH = 4_000;
@@ -222,7 +222,7 @@ function isProviderCallError(error: unknown): boolean {
   );
 }
 
-const SYSTEM_INSTRUCTION = `You are the IndexLoom Phase 1 pipeline planner ({{PROMPT_VERSION}}).
+const SYSTEM_INSTRUCTION = `You are the Prompt2API Phase 1 pipeline planner ({{PROMPT_VERSION}}).
 Return only the structured result required by the supplied JSON Schema.
 
 Supported scope is deliberately narrow:

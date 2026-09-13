@@ -372,7 +372,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "indexloom-erc4626-template"
+name = "prompt2api-erc4626-template"
 version = "0.1.0"
 dependencies = [
  "ethabi",

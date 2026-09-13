@@ -18,17 +18,44 @@ const FAILED_STATES = new Set([
   "DEPLOYMENT_FAILED", "CANCELLED",
 ]);
 
+const STAGE_COPY: Record<string, { title: string; summary: string; detail: string }> = {
+  BUILD: {
+    title: "Prepare reviewed mapper",
+    summary: "Fingerprint → WASM → versioned package",
+    detail: "Checks the reviewed Rust, protobuf, and ABI fingerprint, then safely reuses matching WASM or compiles it once before creating the Substreams package. No unvalidated model output is passed to a command or child process.",
+  },
+  INFO: {
+    title: "Inspect package metadata",
+    summary: "Manifest, modules, parameters, outputs",
+    detail: "Asks the Substreams CLI to parse the package and verify its network, module types, parameters, and output schemas.",
+  },
+  GRAPH: {
+    title: "Verify module graph",
+    summary: "Filtered events → mapper → PostgreSQL",
+    detail: "Checks the composed dependency graph from The Graph's filtered Base events through the ERC-4626 mapper to database changes.",
+  },
+  VALIDATION: {
+    title: "Validate against live Base data",
+    summary: "Bounded live blockchain sample",
+    detail: "Streams a fixed block range from Base, decodes Deposit and Withdraw events, and checks addresses, event IDs, raw amounts, and required metadata.",
+  },
+};
+
 export function PipelineConsole({ pipelineId }: { pipelineId: string }) {
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryStartBlock, setRetryStartBlock] = useState("");
 
   const refresh = useCallback(async () => {
     try {
       const next = await api<Pipeline>(`/v1/pipelines/${pipelineId}`);
       setPipeline(next);
+      if (next.validationOutcome?.status === "NO_ACTIVITY_IN_SAMPLE") {
+        setRetryStartBlock(String(next.spec?.startBlock ?? ""));
+      }
       if (next.versions.length > 0) {
         const logs = await api<{ runs: Run[] }>(`/v1/pipelines/${pipelineId}/logs`);
         setRuns(logs.runs);
@@ -64,6 +91,8 @@ export function PipelineConsole({ pipelineId }: { pipelineId: string }) {
               configurationHash: preview?.configurationHash,
               packageHash: preview?.packageHash,
             })
+          : kind === "retry" && pipeline?.validationOutcome?.status === "NO_ACTIVITY_IN_SAMPLE"
+            ? JSON.stringify({ startBlock: Number(retryStartBlock) })
           : "{}";
       await api(`/v1/pipelines/${pipelineId}/${kind}`, { method: "POST", body });
       await refresh();
@@ -87,7 +116,18 @@ export function PipelineConsole({ pipelineId }: { pipelineId: string }) {
   }
 
   const lastTransition = pipeline.transitions.at(-1);
+  const noActivity = pipeline.validationOutcome?.status === "NO_ACTIVITY_IN_SAMPLE"
+    ? pipeline.validationOutcome
+    : null;
+  const retryBlockIsValid = /^\d+$/.test(retryStartBlock) &&
+    Number.isSafeInteger(Number(retryStartBlock));
   const validation = preview?.validation ?? activeVersion?.validationResult ?? null;
+  const validationBlockCount = activeVersion?.validationStartBlock !== null &&
+    activeVersion?.validationStartBlock !== undefined &&
+    activeVersion.validationStopBlock !== null &&
+    activeVersion.validationStopBlock !== undefined
+    ? activeVersion.validationStopBlock - activeVersion.validationStartBlock
+    : null;
 
   return (
     <main className="page-shell workspace-shell">
@@ -110,7 +150,7 @@ export function PipelineConsole({ pipelineId }: { pipelineId: string }) {
           <div>
             <small>{pipeline.status === "NEEDS_INPUT" ? "More information needed" : "Outside Phase 1 scope"}</small>
             <h2>{lastTransition?.reason ?? "The planner could not create this pipeline."}</h2>
-            <p>Return to the builder and refine the request. IndexLoom will never invent unsupported configuration.</p>
+            <p>Return to the builder and refine the request. Prompt2API will never invent unsupported configuration.</p>
             <Link className="secondary-button inline-button" href="/">← Revise request</Link>
           </div>
         </section>
@@ -164,13 +204,13 @@ export function PipelineConsole({ pipelineId }: { pipelineId: string }) {
             <section className="panel run-panel">
               <div className="panel-title"><h3>Execution stages</h3>{POLLED_STATES.has(pipeline.status) ? <span className="running-pill"><Spinner /> Running</span> : null}</div>
               <div className="run-list">
-                {runs.map((run) => <RunRow key={run.id} run={run} />)}
-                {runs.length === 0 ? <p className="empty-copy">Waiting for the build worker…</p> : null}
+                {runs.map((run) => <RunRow key={run.id} run={run} validationBlockCount={validationBlockCount} />)}
+                {runs.length === 0 ? <p className="empty-copy">Waiting for the restricted build subprocess…</p> : null}
               </div>
             </section>
             <section className="panel validation-panel">
               <div className="panel-title"><h3>Validation checklist</h3><span>{validation?.eventCount ?? 0} events</span></div>
-              {validation ? <Checklist validation={validation} /> : <div className="validation-wait"><RadarIcon /><p>Live Base checks appear here after the package builds.</p></div>}
+              {validation ? <Checklist validation={validation} /> : <StageGuide runs={runs} validationBlockCount={validationBlockCount} />}
             </section>
           </div>
         </>
@@ -200,10 +240,36 @@ export function PipelineConsole({ pipelineId }: { pipelineId: string }) {
       ) : null}
 
       {POLLED_STATES.has(pipeline.status) ? (
-        <section className="action-bar subdued"><div><Spinner /><span><small>Pipeline in progress</small><strong>{lastTransition?.reason ?? "The worker is processing this pipeline."}</strong></span></div><button className="ghost-button" disabled={busy} onClick={() => void action("cancel")}>Cancel</button></section>
+        <section className="action-bar subdued"><div><Spinner /><span><small>{currentStageLabel(pipeline.status)}</small><strong>{currentStageMessage(pipeline.status, activeVersion)}</strong><em>{lastTransition?.reason ?? "The restricted build subprocess is processing this pipeline."}</em></span></div><button className="ghost-button" disabled={busy} onClick={() => void action("cancel")}>Cancel</button></section>
       ) : null}
 
-      {FAILED_STATES.has(pipeline.status) && pipeline.status !== "DEPLOYMENT_FAILED" ? (
+      {noActivity ? (
+        <section className="action-bar no-activity-bar">
+          <div>
+            <span className="no-activity-mark">0</span>
+            <span>
+              <small>No activity in sample</small>
+              <strong>The {validationBlockCount?.toLocaleString() ?? "bounded"}-block Substreams run succeeded, but no matching vault events occurred.</strong>
+              <em>{noActivity.message}</em>
+            </span>
+          </div>
+          <label>
+            <span>New start block</span>
+            <input
+              aria-label="New validation start block"
+              inputMode="numeric"
+              min="0"
+              step="1"
+              type="number"
+              value={retryStartBlock}
+              onChange={(event) => setRetryStartBlock(event.target.value)}
+            />
+          </label>
+          <button className="secondary-button" disabled={busy || !retryBlockIsValid} onClick={() => void action("retry")}>Retry validation</button>
+        </section>
+      ) : null}
+
+      {FAILED_STATES.has(pipeline.status) && pipeline.status !== "DEPLOYMENT_FAILED" && noActivity === null ? (
         <section className="action-bar failed"><div><span className="failure-mark">!</span><span><small>Pipeline stopped</small><strong>{lastTransition?.reason ?? "Review the logs before retrying."}</strong></span></div><button className="secondary-button" disabled={busy} onClick={() => void action("retry")}>Retry build</button></section>
       ) : null}
 
@@ -225,14 +291,75 @@ function Progress({ state }: { state: Pipeline["status"] }) {
   const positions: Partial<Record<Pipeline["status"], number>> = {
     DRAFT: 0, PLANNING: 0, PLAN_READY: 1, BUILD_QUEUED: 1, BUILDING: 1,
     VALIDATING: 2, AWAITING_APPROVAL: 3, DEPLOYING: 4, LIVE: 5,
+    PLAN_FAILED: 0, NEEDS_INPUT: 0, UNSUPPORTED_SCOPE: 0,
+    BUILD_FAILED: 1, FAILED_INTERRUPTED: 1, VALIDATION_FAILED: 2,
+    DEPLOYMENT_FAILED: 3,
   };
   const position = positions[state] ?? 0;
   return <nav className="progress" aria-label="Pipeline progress">{steps.map((step, index) => <div className={index < position ? "done" : index === position ? "current" : ""} key={step}><span>{index < position ? "✓" : index + 1}</span><small>{step}</small>{index < steps.length - 1 ? <i /> : null}</div>)}</nav>;
 }
 
-function RunRow({ run }: { run: Run }) {
+function RunRow({ run, validationBlockCount }: { run: Run; validationBlockCount: number | null }) {
   const successful = run.status === "SUCCEEDED";
-  return <details className="run-row"><summary><span className={successful ? "run-check" : run.status === "RUNNING" ? "run-active" : "run-failed"}>{successful ? "✓" : run.status === "RUNNING" ? "•" : "!"}</span><div><strong>{run.stage}</strong><small>{run.commandLabel ?? "Trusted runner stage"}</small></div><time>{run.durationMs === null ? "—" : `${run.durationMs} ms`}</time><b>{run.status}</b></summary>{run.stdout || run.stderr || run.errorMessage ? <pre>{[run.stdout, run.stderr, run.errorMessage].filter(Boolean).join("\n")}</pre> : null}</details>;
+  const copy = stageCopy(run.stage, validationBlockCount);
+  const timing = typeof run.durationMs === "number"
+    ? formatDuration(run.durationMs)
+    : run.status === "RUNNING" ? "In progress" : run.status === "PENDING" ? "Queued" : "Complete";
+  return <details className="run-row"><summary><span className={successful ? "run-check" : run.status === "RUNNING" ? "run-active" : "run-failed"}>{successful ? "✓" : run.status === "RUNNING" ? "•" : "!"}</span><div><strong>{copy.title}</strong><small>{copy.summary}</small></div><time>{timing}</time><b>{run.status}</b></summary><p className="run-purpose">{copy.detail}</p>{run.stdout || run.stderr || run.errorMessage ? <pre>{[run.stdout, run.stderr, run.errorMessage].filter(Boolean).join("\n")}</pre> : null}</details>;
+}
+
+function formatDuration(milliseconds: number): string {
+  if (milliseconds < 1_000) return `${milliseconds} ms`;
+  const totalSeconds = Math.floor(milliseconds / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes === 0 ? `${totalSeconds}s` : `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+}
+
+function StageGuide({ runs, validationBlockCount }: { runs: Run[]; validationBlockCount: number | null }) {
+  const stages = ["BUILD", "INFO", "GRAPH", "VALIDATION"];
+  return <div className="stage-guide"><p>The worker follows four inspectable steps. Executable code comes only from the reviewed template.</p><ol>{stages.map((stage, index) => {
+    const run = [...runs].reverse().find((candidate) => candidate.stage === stage);
+    const state = run?.status === "SUCCEEDED" ? "done" : run?.status === "RUNNING" ? "active" : run === undefined || run.status === "PENDING" ? "pending" : "failed";
+    const copy = stageCopy(stage, validationBlockCount);
+    return <li className={state} key={stage}><span>{state === "done" ? "✓" : index + 1}</span><div><strong>{copy.title}</strong><small>{copy.detail}</small></div></li>;
+  })}</ol></div>;
+}
+
+function stageCopy(stage: string, validationBlockCount: number | null) {
+  const copy = STAGE_COPY[stage] ?? {
+    title: stage.replaceAll("_", " "),
+    summary: "Trusted runner stage",
+    detail: "Runs an allowlisted backend operation and records its result for review.",
+  };
+  if (stage !== "VALIDATION" || validationBlockCount === null) return copy;
+  return {
+    ...copy,
+    summary: `${validationBlockCount.toLocaleString()}-block live sample`,
+    detail: `Streams a fixed ${validationBlockCount.toLocaleString()}-block range from Base, decodes Deposit and Withdraw events, and checks addresses, event IDs, raw amounts, and required metadata.`,
+  };
+}
+
+function currentStageLabel(status: Pipeline["status"]): string {
+  return status === "BUILD_QUEUED" ? "Waiting for restricted build subprocess" :
+    status === "BUILDING" ? "Preparing reviewed package" :
+      status === "VALIDATING" ? "Checking live Base data" :
+        status === "DEPLOYING" ? "Starting continuous indexing" : "Pipeline in progress";
+}
+
+function currentStageMessage(status: Pipeline["status"], version: Pipeline["versions"][number] | null): string {
+  if (status === "BUILD_QUEUED") return "The versioned package is queued for the restricted build subprocess.";
+  if (status === "BUILDING") return "The worker fingerprints the trusted ERC-4626 mapper, reuses matching reviewed WASM when available, and creates this version's package.";
+  if (status === "VALIDATING") {
+    const count = version?.validationStartBlock != null && version.validationStopBlock != null
+      ? version.validationStopBlock - version.validationStartBlock
+      : null;
+    return count === null
+      ? "The package is running over a bounded live Base block range."
+      : `The package is decoding and checking a fixed ${count.toLocaleString()}-block live Base sample.`;
+  }
+  if (status === "DEPLOYING") return "Approved hashes are being verified before the resumable PostgreSQL sink starts.";
+  return "The restricted build subprocess is processing this pipeline.";
 }
 
 function Checklist({ validation }: { validation: NonNullable<Preview["validation"]> }) {
@@ -254,4 +381,3 @@ function highlightFilter(value: string) {
 }
 
 function Spinner() { return <span className="spinner" aria-hidden="true" />; }
-function RadarIcon() { return <svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="28"/><circle cx="40" cy="40" r="17"/><circle cx="40" cy="40" r="5"/><path d="M40 40 62 22"/></svg>; }

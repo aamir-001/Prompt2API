@@ -1,10 +1,10 @@
-# IndexLoom Phase 1: end-to-end flow and component ownership
+# Prompt2API Phase 1: end-to-end flow and component ownership
 
 This document explains what happens from the moment a user submits a natural-language
-request until IndexLoom exposes a continuously updated dataset API. It also identifies
+request until Prompt2API exposes a continuously updated dataset API. It also identifies
 which parts are:
 
-- written and reviewed by the IndexLoom developers;
+- written and reviewed by the Prompt2API developers;
 - proposed dynamically by Gemini;
 - derived deterministically by backend code; or
 - produced at build/runtime by trusted tools and live blockchain data.
@@ -67,7 +67,7 @@ The rest of this document uses four ownership classes.
 
 | Class | Meaning | Example |
 | --- | --- | --- |
-| Fixed and reviewed | Source committed by the IndexLoom developers | Rust mapper, ABI, Protobuf, SQL schema |
+| Fixed and reviewed | Source committed by the Prompt2API developers | Rust mapper, ABI, Protobuf, SQL schema |
 | LLM-proposed | A constrained value inferred by Gemini from the prompt | vault address, requested events, start block |
 | Backend-derived | Produced by ordinary deterministic TypeScript after validation | event topics, filter, slug, schema name |
 | Build/runtime-produced | Produced by trusted tools or external data | WASM binary, `.spkg`, validation events, database rows |
@@ -85,7 +85,7 @@ sequenceDiagram
     participant DB as Control PostgreSQL
     participant LLM as Gemini planner
     participant Generator as Template generator
-    participant Worker as Build worker
+    participant Worker as Restricted build subprocess
     participant CLI as Substreams CLI
     participant Graph as The Graph provider
     participant Sink as PostgreSQL sink
@@ -289,7 +289,7 @@ the configured template/artifact roots. The output directory must be empty.
 
 ### Files copied byte-for-byte
 
-These files are written and reviewed by the IndexLoom developers and copied unchanged
+These files are written and reviewed by the Prompt2API developers and copied unchanged
 for every Phase 1 pipeline:
 
 | Fixed file | Purpose |
@@ -299,7 +299,7 @@ for every Phase 1 pipeline:
 | [`rust-toolchain.toml`](../templates/erc4626/rust-toolchain.toml) | Rust/WASM toolchain selection |
 | [`buf.gen.yaml`](../templates/erc4626/buf.gen.yaml) | Protobuf generation configuration |
 | [`build.rs`](../templates/erc4626/build.rs) | Generates Rust ABI and Protobuf bindings |
-| [`vault.proto`](../templates/erc4626/proto/indexloom/erc4626/v1/vault.proto) | Deposit, Withdraw and VaultEvents message shapes |
+| [`vault.proto`](../templates/erc4626/proto/prompt2api/erc4626/v1/vault.proto) | Deposit, Withdraw and VaultEvents message shapes |
 | [`src/lib.rs`](../templates/erc4626/src/lib.rs) | Reviewed Deposit/Withdraw decoder and database mapper |
 | [`src/abi/mod.rs`](../templates/erc4626/src/abi/mod.rs) | Rust ABI module declaration |
 | [`erc4626.json`](../templates/erc4626/abi/erc4626.json) | Fixed ERC-4626 Deposit/Withdraw ABI |
@@ -360,7 +360,7 @@ generate typed Rust decoders.
 
 ### Protobuf messages
 
-[`vault.proto`](../templates/erc4626/proto/indexloom/erc4626/v1/vault.proto)
+[`vault.proto`](../templates/erc4626/proto/prompt2api/erc4626/v1/vault.proto)
 defines the structured records exchanged between modules:
 
 - `Deposit`;
@@ -402,7 +402,7 @@ The rendered `substreams.yaml` wires the fixed dataflow together:
 ```text
 Base logs
   -> ethereum_common:filtered_events
-  -> map_vault_events (IndexLoom Rust/WASM)
+  -> map_vault_events (Prompt2API Rust/WASM)
   -> db_out (database changes)
   -> PostgreSQL sink
 ```
@@ -418,13 +418,23 @@ the runner in
 
 The trusted runner performs these stages:
 
-1. `substreams build` compiles the fixed Rust into WASM and creates a `.spkg`.
+1. The runner fingerprints the fixed compiler inputs. `substreams build` compiles them
+   into WASM on a cache miss; `substreams pack` creates the versioned `.spkg` directly
+   when the fingerprinted reviewed WASM already exists.
 2. `substreams info` inspects package metadata.
 3. `substreams graph` inspects the composed module graph.
 
+Generated versions link to a shared Cargo target under `ARTIFACT_ROOT`, and the runner
+sets a fixed `CARGO_TARGET_DIR`. A cached WASM binary is reused only when a SHA-256
+fingerprint matches every reviewed Rust, protobuf, ABI, Cargo, toolchain, and build-script
+input. This does not skip package inspection, artifact hashing, or live validation. Run
+`pnpm warm:substreams` once before a live demo to populate that cache.
+
 Commands are assembled by backend code and started with `shell: false`. The project
 directory must resolve inside `ARTIFACT_ROOT`. Output is bounded, execution has a
-timeout, and build processes receive no Gemini/database credentials.
+timeout, and build processes receive no Gemini/database credentials. This is a
+restricted build subprocess, not an OS/container sandbox. No unvalidated model output
+is passed to a command or child process.
 
 ### Build/runtime-produced artifacts
 
@@ -447,8 +457,12 @@ After a successful build, the worker runs the package over a bounded block range
 [startBlock, startBlock + VALIDATION_BLOCK_COUNT)
 ```
 
+The demo default is 100 blocks. The backend derives this stop block deterministically;
+Gemini does not select the range size. Operators can increase it through configuration
+when a larger validation sample is more important than demo latency.
+
 The Graph's Substreams endpoint supplies real Base data. The backend parses the JSONL
-output and checks:
+output. If matching events are present, it checks:
 
 - at least one matching event exists;
 - all vaults are in the configured allowlist;
@@ -460,6 +474,13 @@ output and checks:
 
 The runtime writes `validation-output.jsonl`, calculates the `.spkg` SHA-256 hash and
 stores a bounded event preview and checklist in the control database.
+
+If the provider run itself succeeds but returns zero matching events, the pipeline
+instead reports the distinct `NO_ACTIVITY_IN_SAMPLE` outcome. The UI explains that the
+configured vault had no matching activity in that 100-block interval and offers a
+validated start-block input. Retrying creates a new immutable package version and live
+sample without another Gemini request. Provider errors, timeouts, and malformed output
+remain ordinary validation failures rather than being mislabeled as no activity.
 
 These records are live-provider results. They are neither LLM-generated nor static
 template data.
@@ -544,7 +565,7 @@ not output generated by Gemini.
 
 This is the quickest reference for deciding who controls each piece.
 
-| Component/value | Fixed by IndexLoom | Proposed by LLM | Backend-derived | Tool/live-produced |
+| Component/value | Fixed by Prompt2API | Proposed by LLM | Backend-derived | Tool/live-produced |
 | --- | :---: | :---: | :---: | :---: |
 | User prompt |  |  |  | User input |
 | `PlannerResult` classification |  | Yes |  |  |
@@ -635,7 +656,7 @@ statement or package execute.
 ## 16. How to extend this safely later
 
 Adding a new protocol or event family is not merely a prompt change. It requires the
-IndexLoom developers to add and review a new capability package containing:
+Prompt2API developers to add and review a new capability package containing:
 
 1. a strict planner schema extension;
 2. fixed ABI definitions;

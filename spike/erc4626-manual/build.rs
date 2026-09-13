@@ -1,6 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=abi/erc4626.json");
-    println!("cargo:rerun-if-changed=proto/indexloom/erc4626/v1/vault.proto");
+    println!("cargo:rerun-if-changed=proto/prompt2api/erc4626/v1/vault.proto");
 
     substreams_ethereum::Abigen::new("Erc4626", "abi/erc4626.json")
         .expect("load ERC-4626 ABI")
@@ -9,6 +9,6 @@ fn main() {
         .write_to_file("src/abi/erc4626.rs")
         .expect("write ERC-4626 bindings");
 
-    prost_build::compile_protos(&["proto/indexloom/erc4626/v1/vault.proto"], &["proto/"])
-        .expect("compile IndexLoom protobuf definitions");
+    prost_build::compile_protos(&["proto/prompt2api/erc4626/v1/vault.proto"], &["proto/"])
+        .expect("compile Prompt2API protobuf definitions");
 }

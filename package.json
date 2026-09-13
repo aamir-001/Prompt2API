@@ -1,5 +1,5 @@
 {
-  "name": "indexloom",
+  "name": "prompt2api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,15 +8,20 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev:api": "pnpm --filter @indexloom/api dev",
-    "dev:web": "pnpm --filter @indexloom/web dev",
-    "db:generate": "pnpm --filter @indexloom/db prisma:generate",
-    "db:migrate": "pnpm --filter @indexloom/db prisma:migrate",
+    "dev:api": "pnpm --filter @prompt2api/api dev",
+    "dev:web": "pnpm --filter @prompt2api/web dev",
+    "dev:agent": "pnpm --filter @prompt2api/consumer-agent dev",
+    "db:generate": "pnpm --filter @prompt2api/db prisma:generate",
+    "db:migrate": "pnpm --filter @prompt2api/db prisma:migrate",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate:golden": "tsx scripts/generate-golden.ts"
+    "test:database": "node scripts/test-database.js",
+    "test:live:gemini": "node scripts/test-live.js gemini",
+    "test:live:substreams": "node scripts/test-live.js substreams",
+    "generate:golden": "tsx scripts/generate-golden.ts",
+    "warm:substreams": "tsx scripts/warm-substreams.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.1",

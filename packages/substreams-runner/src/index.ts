@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { lstat, mkdir, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
@@ -43,11 +44,35 @@ export interface SubstreamsRunnerOptions {
 }
 
 interface SpawnRequest extends ProjectCommandOptions {
-  subcommand: "build" | "info" | "graph" | "run";
+  subcommand: "build" | "pack" | "info" | "graph" | "run";
   args: string[];
   secrets?: string[];
   extraEnvironment?: Record<string, string>;
 }
+
+interface SharedCargoCache {
+  directory: string;
+  binaryPath: string;
+  fingerprint: string;
+  stampPath: string;
+}
+
+const COMPILED_TEMPLATE_INPUTS = [
+  "Cargo.toml",
+  "Cargo.lock",
+  "rust-toolchain.toml",
+  "build.rs",
+  "proto/prompt2api/erc4626/v1/vault.proto",
+  "src/lib.rs",
+  "src/abi/mod.rs",
+  "abi/erc4626.json",
+] as const;
+
+const COMPILED_WASM_PATH = join(
+  "wasm32-unknown-unknown",
+  "release",
+  "prompt2api_erc4626_template.wasm",
+);
 
 const OutputEventSchema = z.strictObject({
   eventId: z.string().min(1),
@@ -67,7 +92,7 @@ const OutputEventSchema = z.strictObject({
 const JsonlEnvelopeSchema = z.strictObject({
   "@module": z.literal("map_vault_events"),
   "@block": z.number().int().nonnegative(),
-  "@type": z.literal("indexloom.erc4626.v1.VaultEvents"),
+  "@type": z.literal("prompt2api.erc4626.v1.VaultEvents"),
   "@data": z.strictObject({
     deposits: z.array(OutputEventSchema).optional(),
     withdrawals: z.array(OutputEventSchema).optional(),
@@ -131,12 +156,104 @@ export class SubstreamsRunner {
     this.#spawn = options.spawnImplementation ?? spawn;
   }
 
-  build(options: ProjectCommandOptions): Promise<ProcessResult> {
-    return this.#run({
+  async build(options: ProjectCommandOptions): Promise<ProcessResult> {
+    const sharedCargoCache = await this.#prepareSharedCargoCache(options.projectDirectory);
+    const useCachedBinary = sharedCargoCache === undefined
+      ? false
+      : await this.#cacheMatches(sharedCargoCache);
+    const result = await this.#run({
       ...options,
-      subcommand: "build",
-      args: ["build", "--manifest", "./substreams.yaml"],
+      subcommand: useCachedBinary ? "pack" : "build",
+      args: useCachedBinary
+        ? ["pack", "./substreams.yaml"]
+        : ["build", "--manifest", "./substreams.yaml"],
+      ...(sharedCargoCache === undefined
+        ? {}
+        : { extraEnvironment: { CARGO_TARGET_DIR: sharedCargoCache.directory } }),
     });
+    if (
+      !useCachedBinary &&
+      sharedCargoCache !== undefined &&
+      result.exitCode === 0 &&
+      !result.timedOut &&
+      !result.cancelled &&
+      await this.#isFile(sharedCargoCache.binaryPath)
+    ) {
+      await writeFile(sharedCargoCache.stampPath, `${sharedCargoCache.fingerprint}\n`, "utf8");
+    }
+    return result;
+  }
+
+  async #prepareSharedCargoCache(projectDirectory: string): Promise<SharedCargoCache | undefined> {
+    const project = await realpath(projectDirectory);
+    const artifactRoot = await realpath(this.#artifactRoot);
+    const fromRoot = relative(artifactRoot, project);
+    if (
+      fromRoot === "" ||
+      fromRoot === ".." ||
+      fromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(fromRoot)
+    ) {
+      throw new Error("Project directory is outside ARTIFACT_ROOT");
+    }
+
+    const projectTarget = join(project, "target");
+    const sharedTarget = join(artifactRoot, ".cargo-target");
+    await mkdir(sharedTarget, { recursive: true });
+    try {
+      const targetStat = await lstat(projectTarget);
+      if (!targetStat.isSymbolicLink()) return undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const linkTarget = process.platform === "win32"
+        ? sharedTarget
+        : relative(project, sharedTarget);
+      try {
+        await symlink(linkTarget, projectTarget, process.platform === "win32" ? "junction" : "dir");
+      } catch (symlinkError) {
+        if ((symlinkError as NodeJS.ErrnoException).code !== "EEXIST") throw symlinkError;
+      }
+    }
+    if ((await realpath(projectTarget)) !== (await realpath(sharedTarget))) {
+      throw new Error("Project target symlink does not resolve to the shared Cargo cache");
+    }
+    const fingerprint = await this.#compilationFingerprint(project);
+    return {
+      directory: sharedTarget,
+      binaryPath: join(sharedTarget, COMPILED_WASM_PATH),
+      fingerprint,
+      stampPath: join(sharedTarget, ".prompt2api-template-sha256"),
+    };
+  }
+
+  async #compilationFingerprint(projectDirectory: string): Promise<string> {
+    const hash = createHash("sha256");
+    for (const input of COMPILED_TEMPLATE_INPUTS) {
+      hash.update(input);
+      hash.update("\0");
+      hash.update(await readFile(join(projectDirectory, input)));
+      hash.update("\0");
+    }
+    return hash.digest("hex");
+  }
+
+  async #cacheMatches(cache: SharedCargoCache): Promise<boolean> {
+    if (!await this.#isFile(cache.binaryPath)) return false;
+    try {
+      return (await readFile(cache.stampPath, "utf8")).trim() === cache.fingerprint;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
+  async #isFile(path: string): Promise<boolean> {
+    try {
+      return (await stat(path)).isFile();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
   }
 
   info(options: ProjectCommandOptions): Promise<ProcessResult> {

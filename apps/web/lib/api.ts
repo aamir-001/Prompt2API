@@ -39,9 +39,17 @@ export interface Pipeline {
     version: number;
     configurationHash: string;
     packageHash: string | null;
+    validationStartBlock: number | null;
+    validationStopBlock: number | null;
     validationResult: ValidationResult | null;
   }>;
   transitions: Array<{ toState: PipelineState; reason: string; createdAt: string }>;
+  validationOutcome: {
+    status: "NO_ACTIVITY_IN_SAMPLE";
+    message: string;
+    startBlock: number | null;
+    stopBlock: number | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,6 +93,8 @@ export interface Run {
   stderr: string | null;
   durationMs: number | null;
   errorMessage: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
 }
 
 export class ApiError extends Error {

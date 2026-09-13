@@ -5,6 +5,7 @@ set -euo pipefail
 dependency_directories=(
   node_modules
   apps/api/node_modules
+  apps/consumer-agent/node_modules
   apps/web/node_modules
   packages/contracts/node_modules
   packages/dataset-service/node_modules
@@ -26,4 +27,4 @@ node --version
 pnpm --version
 
 pnpm install --frozen-lockfile
-pnpm --filter @indexloom/db prisma:generate
+pnpm --filter @prompt2api/db prisma:generate

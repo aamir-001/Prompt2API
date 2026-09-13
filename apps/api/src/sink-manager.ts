@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readdir, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { redactOutput } from "@indexloom/substreams-runner";
+import { redactOutput } from "@prompt2api/substreams-runner";
 import type { ControlStore, DeploymentContext } from "./store.js";
 
 export interface DatasetProvisioner {

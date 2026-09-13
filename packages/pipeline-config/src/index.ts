@@ -2,7 +2,7 @@ import {
   normalizePipelineSpec,
   parsePipelineSpec,
   type PipelineSpec,
-} from "@indexloom/contracts";
+} from "@prompt2api/contracts";
 import { toEventSelector } from "viem";
 
 export const ERC4626_EVENTS = {

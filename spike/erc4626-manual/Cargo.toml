@@ -1,5 +1,5 @@
 [package]
-name = "indexloom-erc4626-manual"
+name = "prompt2api-erc4626-manual"
 version = "0.1.0"
 edition = "2021"
 description = "Manual Phase 1 feasibility spike for Base ERC-4626 vault events"

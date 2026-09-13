@@ -7,10 +7,11 @@ import {
   parsePipelineSpec,
   type PipelineSpec,
   type PipelinePlanner,
-} from "@indexloom/contracts";
-import { renderPipeline } from "@indexloom/generator";
-import { derivePipelineConfig } from "@indexloom/pipeline-config";
+} from "@prompt2api/contracts";
+import { renderPipeline } from "@prompt2api/generator";
+import { derivePipelineConfig } from "@prompt2api/pipeline-config";
 import type { ControlStore, DerivedPlan, PipelineSnapshot } from "./store.js";
+import { assertPipelineTransition } from "./state-machine.js";
 
 const MAX_PROMPT_LENGTH = 4_000;
 
@@ -107,14 +108,27 @@ export class PipelineService {
     return pipeline;
   }
 
-  async queueBuild(pipelineId: string): Promise<PipelineSnapshot> {
+  async queueBuild(
+    pipelineId: string,
+    options?: { startBlock?: number | undefined },
+  ): Promise<PipelineSnapshot> {
     const pipeline = await this.#store.getPipeline(pipelineId);
     if (pipeline === null) throw new Error("Pipeline not found");
     if (pipeline.spec === null) throw new Error("Pipeline has no validated specification");
+    assertPipelineTransition(pipeline.state, "BUILD_QUEUED");
+    const spec = options?.startBlock === undefined
+      ? pipeline.spec
+      : normalizePipelineSpec(parsePipelineSpec({
+          ...pipeline.spec,
+          startBlock: options.startBlock,
+        }));
+    if (options?.startBlock !== undefined) {
+      await this.#store.updatePipelineSpec(pipelineId, spec);
+    }
     const version = pipeline.activeVersion + 1;
     const artifactSubdirectory = `${pipelineId}/${version}`;
     const rendered = await renderPipeline({
-      spec: pipeline.spec,
+      spec,
       pipelineId,
       pipelineVersion: version,
       templateRoot: this.#templateRoot,
@@ -125,7 +139,7 @@ export class PipelineService {
       join(rendered.outputDirectory, "artifact-manifest.json"),
     );
     const configurationHash = `sha256:${createHash("sha256").update(artifactManifest).digest("hex")}`;
-    const stopBlock = pipeline.spec.startBlock + this.#validationBlockCount;
+    const stopBlock = spec.startBlock + this.#validationBlockCount;
     if (!Number.isSafeInteger(stopBlock)) {
       throw new Error("Validation block range exceeds safe integer bounds");
     }
@@ -134,7 +148,7 @@ export class PipelineService {
       version,
       artifactDirectory: rendered.outputDirectory,
       configurationHash,
-      validationStartBlock: pipeline.spec.startBlock,
+      validationStartBlock: spec.startBlock,
       validationStopBlock: stopBlock,
     });
     const updated = await this.#store.getPipeline(pipelineId);

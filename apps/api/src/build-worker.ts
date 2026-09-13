@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PipelineState } from "@indexloom/contracts";
+import type { PipelineState } from "@prompt2api/contracts";
 import {
   parseValidationJsonl,
   type ProcessResult,
   type SubstreamsRunner,
-} from "@indexloom/substreams-runner";
+} from "@prompt2api/substreams-runner";
 import type { ControlStore, PipelineSnapshot } from "./store.js";
+import { NoActivityInSampleError } from "./validation-outcome.js";
 
 export interface BuildWorkerOptions {
   store: ControlStore;
@@ -91,7 +92,11 @@ export class BuildWorker {
     const projectDirectory = version.artifactDirectory;
 
     try {
-      await this.#store.transition(pipelineId, "BUILDING", "Build worker claimed job");
+      await this.#store.transition(
+        pipelineId,
+        "BUILDING",
+        "Restricted build subprocess claimed job",
+      );
       await this.#runProcess(buildRunId, "BUILD_FAILED", () =>
         this.#runner.build({
           projectDirectory,
@@ -160,6 +165,12 @@ export class BuildWorker {
           }),
       );
       const preview = parseValidationJsonl(validationResult.stdout);
+      if (preview.events.length === 0) {
+        throw new NoActivityInSampleError(
+          currentVersion.validationStartBlock,
+          currentVersion.validationStopBlock,
+        );
+      }
       this.#validatePreview(preview.events, pipeline);
       await writeFile(
         join(projectDirectory, "validation-output.jsonl"),
@@ -200,7 +211,7 @@ export class BuildWorker {
           await this.#store.transition(
             pipelineId,
             failedState,
-            error instanceof Error ? error.message : "Build worker failed",
+            error instanceof Error ? error.message : "Restricted build subprocess failed",
           );
         }
       }
@@ -279,7 +290,6 @@ export class BuildWorker {
     events: ReturnType<typeof parseValidationJsonl>["events"],
     pipeline: PipelineSnapshot,
   ): void {
-    if (events.length === 0) throw new Error("Live validation returned no events");
     const allowedVaults = new Set(
       pipeline.contracts.map(({ address }) => address.toLowerCase()),
     );

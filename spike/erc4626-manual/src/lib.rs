@@ -2,7 +2,7 @@ mod abi;
 mod pb;
 
 mod model {
-    include!(concat!(env!("OUT_DIR"), "/indexloom.erc4626.v1.rs"));
+    include!(concat!(env!("OUT_DIR"), "/prompt2api.erc4626.v1.rs"));
 }
 
 use abi::erc4626::events::{Deposit as AbiDeposit, Withdraw as AbiWithdraw};

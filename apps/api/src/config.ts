@@ -8,6 +8,8 @@ const repositoryEnvPath = resolve(repositoryRoot, ".env");
 
 loadDotenv({ path: repositoryEnvPath, quiet: true });
 
+const HederaEntityIdSchema = z.string().regex(/^0\.0\.[1-9]\d*$/);
+
 const EnvironmentSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(4_000),
@@ -19,21 +21,37 @@ const EnvironmentSchema = z.object({
   SUBSTREAMS_API_TOKEN: z.string().min(1),
   SUBSTREAMS_CLI_PATH: z.string().min(1).default("substreams"),
   ARTIFACT_ROOT: z.string().min(1).default("./generated"),
-  BUILD_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(300),
+  BUILD_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(600),
   VALIDATION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(180),
-  VALIDATION_BLOCK_COUNT: z.coerce.number().int().positive().max(100_000).default(1_000),
+  VALIDATION_BLOCK_COUNT: z.coerce.number().int().positive().max(100_000).default(100),
   MAX_ACTIVE_PIPELINE_JOBS: z.literal("1").default("1"),
   LLM_PROVIDER: z.literal("google").default("google"),
   LLM_MODEL: z.string().min(1).default("gemini-3-flash-preview"),
   GEMINI_API_KEY: z.string().min(1),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   PLANNER_PROMPT_VERSION: z.string().min(1).default("v1"),
+  X402_ENABLED: z.enum(["true", "false"]).default("false"),
+  X402_NETWORK: z.literal("hedera:testnet").default("hedera:testnet"),
+  X402_SCHEME: z.literal("exact").default("exact"),
+  X402_ASSET: z.literal("0.0.0").default("0.0.0"),
+  X402_PRICE: z.string().regex(/^[1-9]\d*$/).default("100000"),
+  X402_PAY_TO: HederaEntityIdSchema.optional().or(z.literal("")),
+  X402_FACILITATOR_URL: z.string().url().default("https://api.testnet.blocky402.com"),
+  X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().positive().max(3_600).default(300),
+  X402_FACILITATOR_TIMEOUT_MS: z.coerce.number().int().positive().max(60_000).default(30_000),
 }).superRefine((environment, context) => {
   if (environment.NODE_ENV === "production" && !environment.OPERATOR_API_TOKEN) {
     context.addIssue({
       code: "custom",
       path: ["OPERATOR_API_TOKEN"],
       message: "A 32+ character operator token is required in production",
+    });
+  }
+  if (environment.X402_ENABLED === "true" && !environment.X402_PAY_TO) {
+    context.addIssue({
+      code: "custom",
+      path: ["X402_PAY_TO"],
+      message: "A Hedera recipient account is required when x402 is enabled",
     });
   }
 });
@@ -60,4 +78,15 @@ export const apiConfig = {
   geminiApiKey: parsed.GEMINI_API_KEY,
   llmTimeoutMs: parsed.LLM_TIMEOUT_MS,
   plannerPromptVersion: parsed.PLANNER_PROMPT_VERSION,
+  payment: {
+    enabled: parsed.X402_ENABLED === "true",
+    network: parsed.X402_NETWORK,
+    scheme: parsed.X402_SCHEME,
+    asset: parsed.X402_ASSET,
+    amount: parsed.X402_PRICE,
+    payTo: parsed.X402_PAY_TO || "",
+    facilitatorUrl: parsed.X402_FACILITATOR_URL,
+    maxTimeoutSeconds: parsed.X402_MAX_TIMEOUT_SECONDS,
+    facilitatorTimeoutMs: parsed.X402_FACILITATOR_TIMEOUT_MS,
+  },
 } as const;

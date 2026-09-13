@@ -1,10 +1,10 @@
-import type { PipelineSpec, PipelineState } from "@indexloom/contracts";
+import type { PipelineSpec, PipelineState } from "@prompt2api/contracts";
 import {
   PipelineRunStage,
   PipelineRunStatus,
   Prisma,
   PrismaClient,
-} from "@indexloom/db";
+} from "@prompt2api/db";
 import { assertPipelineTransition } from "./state-machine.js";
 
 export interface DerivedPlan {
@@ -27,6 +27,7 @@ export interface PipelineSnapshot {
   derivedPlan: DerivedPlan | null;
   slug: string | null;
   activeVersion: number;
+  pricing: ApiProductPricing | null;
   contracts: Array<{ address: string; label: string | null }>;
   versions: Array<{
     version: number;
@@ -50,6 +51,8 @@ export interface PipelineSnapshot {
     stderr: string | null;
     errorCode: string | null;
     errorMessage: string | null;
+    startedAt: Date | null;
+    endedAt: Date | null;
     createdAt: Date;
   }>;
   transitions: Array<{
@@ -60,6 +63,19 @@ export interface PipelineSnapshot {
   }>;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ApiProductPricing {
+  enabled: true;
+  protocol: "x402";
+  version: 2;
+  network: "hedera:testnet";
+  scheme: "exact";
+  asset: "0.0.0";
+  amount: string;
+  unit: "tinybar";
+  payTo: string;
+  protectedResources: readonly ["events", "hourlyFlows"];
 }
 
 export interface EnqueueBuildInput {
@@ -113,6 +129,7 @@ export interface ControlStore {
     derivedPlan: DerivedPlan,
     slug: string,
   ): Promise<PipelineSnapshot>;
+  updatePipelineSpec(pipelineId: string, spec: PipelineSpec): Promise<void>;
   transition(pipelineId: string, to: PipelineState, reason: string): Promise<void>;
   getPipeline(pipelineId: string): Promise<PipelineSnapshot | null>;
   listPipelines(): Promise<PipelineSnapshot[]>;
@@ -128,6 +145,7 @@ export interface ControlStore {
   recoverInterruptedJobs(): Promise<number>;
   cancelPendingRuns(pipelineId: string): Promise<void>;
   getPipelineBySlug(slug: string): Promise<PipelineSnapshot | null>;
+  upsertApiProduct(pipelineId: string, pricing: ApiProductPricing): Promise<void>;
   createDeployment(
     pipelineId: string,
     version: number,
@@ -145,6 +163,7 @@ export interface ControlStore {
 }
 
 const pipelineInclude = {
+  apiProduct: true,
   contracts: { orderBy: { createdAt: "asc" as const } },
   versions: { orderBy: { version: "asc" as const } },
   runs: { orderBy: { createdAt: "asc" as const } },
@@ -164,6 +183,7 @@ function snapshot(row: PipelineWithRelations): PipelineSnapshot {
     derivedPlan: row.derivedPlan as unknown as DerivedPlan | null,
     slug: row.slug,
     activeVersion: row.activeVersion,
+    pricing: (row.apiProduct?.pricing as unknown as ApiProductPricing | null) ?? null,
     contracts: row.contracts.map(({ address, label }) => ({ address, label })),
     versions: row.versions.map((version) => ({
       version: version.version,
@@ -187,6 +207,8 @@ function snapshot(row: PipelineWithRelations): PipelineSnapshot {
       stderr: run.stderr,
       errorCode: run.errorCode,
       errorMessage: run.errorMessage,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
       createdAt: run.createdAt,
     })),
     transitions: row.transitions.map((transition) => ({
@@ -296,12 +318,36 @@ export class PrismaControlStore implements ControlStore {
     return rows.map(snapshot);
   }
 
+  async updatePipelineSpec(
+    pipelineId: string,
+    spec: PipelineSpec,
+  ): Promise<void> {
+    await this.prisma.pipeline.update({
+      where: { id: pipelineId },
+      data: { spec: spec as unknown as Prisma.InputJsonValue },
+    });
+  }
+
   async getPipelineBySlug(slug: string): Promise<PipelineSnapshot | null> {
     const row = await this.prisma.pipeline.findUnique({
       where: { slug },
       include: pipelineInclude,
     });
     return row === null ? null : snapshot(row);
+  }
+
+  async upsertApiProduct(
+    pipelineId: string,
+    pricing: ApiProductPricing,
+  ): Promise<void> {
+    await this.prisma.apiProduct.upsert({
+      where: { pipelineId },
+      create: {
+        pipelineId,
+        pricing: pricing as unknown as Prisma.InputJsonValue,
+      },
+      update: { pricing: pricing as unknown as Prisma.InputJsonValue },
+    });
   }
 
   async enqueueBuild(input: EnqueueBuildInput): Promise<ClaimedBuildJob> {

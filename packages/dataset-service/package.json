@@ -1,5 +1,5 @@
 {
-  "name": "@indexloom/dataset-service",
+  "name": "@prompt2api/dataset-service",
   "version": "0.1.0",
   "private": true,
   "type": "module",

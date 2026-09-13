@@ -1,15 +1,15 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { PipelinePlanner, PipelineSpec } from "@indexloom/contracts";
-import type { ProcessResult } from "@indexloom/substreams-runner";
+import type { PipelinePlanner, PipelineSpec } from "@prompt2api/contracts";
+import type { ProcessResult } from "@prompt2api/substreams-runner";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { ApprovalService } from "./approval-service.js";
 import { BuildWorker } from "./build-worker.js";
 import { MemoryControlStore } from "./memory-store.js";
-import { PlannerUnavailableError } from "@indexloom/planner";
+import { PlannerUnavailableError } from "@prompt2api/planner";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const temporaryRoots: string[] = [];
@@ -33,7 +33,7 @@ const goldenSpec: PipelineSpec = {
 const validationOutput = `${JSON.stringify({
   "@module": "map_vault_events",
   "@block": 50_999_150,
-  "@type": "indexloom.erc4626.v1.VaultEvents",
+  "@type": "prompt2api.erc4626.v1.VaultEvents",
   "@data": {
     deposits: [
       {
@@ -72,7 +72,7 @@ afterEach(async () => {
 
 describe("control API vertical slice", () => {
   it("takes a static plan through build and validation to approval", async () => {
-    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-api-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-api-"));
     temporaryRoots.push(artifactRoot);
     const store = new MemoryControlStore();
     const planner: PipelinePlanner = {
@@ -143,6 +143,28 @@ describe("control API vertical slice", () => {
       approvalService,
       datasetService,
       allowLocalOperator: true,
+      paymentGate: {
+        ready: Promise.resolve(),
+        metadata: {
+          enabled: true,
+          protocol: "x402",
+          version: 2,
+          network: "hedera:testnet",
+          scheme: "exact",
+          asset: "0.0.0",
+          amount: "100000",
+          unit: "tinybar",
+          payTo: "0.0.10442846",
+          protectedResources: ["events", "hourlyFlows"],
+        },
+        middleware(request, response, next) {
+          if (request.header("x-test-paid") === "true") {
+            next();
+            return;
+          }
+          response.status(402).json({ error: { code: "PAYMENT_REQUIRED" } });
+        },
+      },
       createPipelineId: () => "pl_test1234",
     });
 
@@ -171,6 +193,17 @@ describe("control API vertical slice", () => {
       "SUCCEEDED",
     ]);
 
+    const logs = await request(app)
+      .get("/v1/pipelines/pl_test1234/logs")
+      .expect(200);
+    expect(logs.body.runs).toHaveLength(4);
+    expect(logs.body.runs[0]).toMatchObject({
+      stage: "BUILD",
+      commandLabel: "substreams build/pack",
+      status: "SUCCEEDED",
+    });
+    expect(logs.body.runs[0].durationMs).toEqual(expect.any(Number));
+
     const preview = await request(app)
       .get("/v1/pipelines/pl_test1234/preview")
       .expect(200);
@@ -198,15 +231,123 @@ describe("control API vertical slice", () => {
     expect(approval.body.status).toBe("LIVE");
 
     const livePipeline = await store.getPipeline("pl_test1234");
+    const metadata = await request(app)
+      .get(`/v1/datasets/${livePipeline!.slug}/meta`)
+      .expect(200);
+    expect(metadata.body.payment).toEqual(expect.objectContaining({
+      protocol: "x402",
+      amount: "100000",
+    }));
+    await request(app)
+      .get(`/v1/datasets/${livePipeline!.slug}/events?limit=10`)
+      .expect(402);
     const events = await request(app)
       .get(`/v1/datasets/${livePipeline!.slug}/events?limit=10`)
+      .set("x-test-paid", "true")
       .expect(200);
     expect(events.body.status).toBe("LIVE");
     expect(events.body.items[0].eventId).toBe("known-event");
   });
 
+  it("reports an empty successful sample distinctly and retries from a new block", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-api-"));
+    temporaryRoots.push(artifactRoot);
+    const store = new MemoryControlStore();
+    let validationCalls = 0;
+    const runner = {
+      async build(options: { projectDirectory: string }) {
+        await writeFile(join(options.projectDirectory, "mock.spkg"), "package");
+        return success("substreams build");
+      },
+      async info() { return success("substreams info"); },
+      async graph() { return success("substreams graph"); },
+      async validate() {
+        validationCalls += 1;
+        return success(
+          "substreams run",
+          validationCalls === 1 ? "" : validationOutput,
+        );
+      },
+    };
+    const worker = new BuildWorker({
+      store,
+      runner,
+      endpoint: "base-mainnet.streamingfast.io:443",
+      apiToken: "test-token",
+      buildTimeoutMs: 1_000,
+      validationTimeoutMs: 1_000,
+    });
+    const app = createApp({
+      store,
+      planner: { async plan() { return { status: "ready", spec: goldenSpec }; } },
+      worker,
+      artifactRoot,
+      templateRoot: join(repositoryRoot, "templates", "erc4626"),
+      validationBlockCount: 100,
+      approvalService: { async approve() { throw new Error("not used"); } },
+      datasetService: {
+        async health() { return { indexedThroughBlock: null }; },
+        async events() { return { items: [], nextCursor: null }; },
+        async hourlyFlows() { return { items: [], nextCursor: null }; },
+        async topDepositors() { return { items: [], nextCursor: null }; },
+      },
+      allowLocalOperator: true,
+      createPipelineId: () => "pl_noactivity",
+    });
+
+    await request(app)
+      .post("/v1/pipelines/plan")
+      .send({ prompt: "Track this Base vault" })
+      .expect(200);
+    await request(app)
+      .post("/v1/pipelines/pl_noactivity/build")
+      .send({})
+      .expect(202);
+
+    let pipeline = await store.getPipeline("pl_noactivity");
+    for (let attempt = 0; pipeline?.state !== "VALIDATION_FAILED" && attempt < 50; attempt += 1) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+      pipeline = await store.getPipeline("pl_noactivity");
+    }
+    expect(pipeline?.state).toBe("VALIDATION_FAILED");
+    expect(pipeline?.runs.at(-1)?.status).toBe("SUCCEEDED");
+
+    const emptySample = await request(app)
+      .get("/v1/pipelines/pl_noactivity")
+      .expect(200);
+    expect(emptySample.body.validationOutcome).toMatchObject({
+      status: "NO_ACTIVITY_IN_SAMPLE",
+      startBlock: goldenSpec.startBlock,
+      stopBlock: goldenSpec.startBlock + 100,
+    });
+    expect(emptySample.body.validationOutcome.message).toContain(
+      "no matching events occurred",
+    );
+
+    const newStartBlock = 50_999_200;
+    await request(app)
+      .post("/v1/pipelines/pl_noactivity/retry")
+      .send({ startBlock: newStartBlock, command: "ignored" })
+      .expect(400);
+    await request(app)
+      .post("/v1/pipelines/pl_noactivity/retry")
+      .send({ startBlock: newStartBlock })
+      .expect(202);
+
+    for (let attempt = 0; pipeline?.state !== "AWAITING_APPROVAL" && attempt < 50; attempt += 1) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+      pipeline = await store.getPipeline("pl_noactivity");
+    }
+    expect(pipeline?.state).toBe("AWAITING_APPROVAL");
+    expect(pipeline?.spec?.startBlock).toBe(newStartBlock);
+    expect(pipeline?.versions.at(-1)).toMatchObject({
+      validationStartBlock: newStartBlock,
+      validationStopBlock: newStartBlock + 100,
+    });
+  });
+
   it("returns 422 for unsupported scope", async () => {
-    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-api-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-api-"));
     temporaryRoots.push(artifactRoot);
     const store = new MemoryControlStore();
     const app = createApp({
@@ -246,7 +387,7 @@ describe("control API vertical slice", () => {
   });
 
   it("returns 503 PLANNER_UNAVAILABLE without inventing a default plan", async () => {
-    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-api-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-api-"));
     temporaryRoots.push(artifactRoot);
     const store = new MemoryControlStore();
     const app = createApp({
@@ -290,7 +431,7 @@ describe("control API vertical slice", () => {
   });
 
   it("does not expose pipeline creation anonymously", async () => {
-    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-api-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-api-"));
     temporaryRoots.push(artifactRoot);
     const app = createApp({
       store: new MemoryControlStore(),

@@ -41,7 +41,7 @@ export function OperatorLogin() {
         {error ? <div className="error-banner"><span>!</span>{error}</div> : null}
         <button className="primary-button" disabled={busy}>{busy ? "Checking…" : "Unlock builder →"}</button>
       </form>
-      <Link href="/">← Back to IndexLoom</Link>
+      <Link href="/">← Back to Prompt2API</Link>
     </section>
   </main>;
 }

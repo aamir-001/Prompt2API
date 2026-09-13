@@ -4,10 +4,14 @@ import { join } from "node:path";
 import {
   ApprovalRequestSchema,
   type ApprovalRequest,
-} from "@indexloom/contracts";
-import { verifyRenderedPipeline } from "@indexloom/generator";
+} from "@prompt2api/contracts";
+import { verifyRenderedPipeline } from "@prompt2api/generator";
 import type { SinkManager } from "./sink-manager.js";
-import type { ControlStore, DeploymentContext } from "./store.js";
+import type {
+  ApiProductPricing,
+  ControlStore,
+  DeploymentContext,
+} from "./store.js";
 
 export class ArtifactChangedError extends Error {
   readonly code = "ARTIFACT_CHANGED";
@@ -22,6 +26,7 @@ export class ApprovalService {
   constructor(
     readonly store: ControlStore,
     readonly sinkManager: Pick<SinkManager, "deploy">,
+    readonly pricing?: ApiProductPricing,
   ) {}
 
   async approve(
@@ -83,11 +88,15 @@ export class ApprovalService {
       "DEPLOYING",
       `Approved configuration and package for version ${version.version}`,
     );
-    return this.sinkManager.deploy(
+    const deployment = await this.sinkManager.deploy(
       pipelineId,
       version.version,
       pipeline.derivedPlan.schemaName,
       pipeline.spec.startBlock,
     );
+    if (this.pricing !== undefined) {
+      await this.store.upsertApiProduct(pipelineId, this.pricing);
+    }
+    return deployment;
   }
 }

@@ -2,12 +2,12 @@ import { CreatePipeline } from "../components/create-pipeline";
 
 export default function HomePage() {
   return (
-    <main className="page-shell create-shell">
+    <main className="page-shell create-shell landing-page">
       <section className="hero">
         <div className="eyebrow"><span>AI pipeline factory</span><i /></div>
-        <h1>Turn intent into<br /><em>indexed data.</em></h1>
+        <h1>Turn intent into <em>indexed data.</em></h1>
         <p>
-          Describe the vault data you need. IndexLoom plans, builds, validates,
+          Describe the vault data you need. Prompt2API plans, builds, validates,
           and deploys a live Substreams-powered API.
         </p>
       </section>

@@ -1,8 +1,8 @@
 import type { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,6 +12,17 @@ import {
 } from "./index.js";
 
 const temporaryRoots: string[] = [];
+
+const compiledTemplateInputs = [
+  "Cargo.toml",
+  "Cargo.lock",
+  "rust-toolchain.toml",
+  "build.rs",
+  "proto/prompt2api/erc4626/v1/vault.proto",
+  "src/lib.rs",
+  "src/abi/mod.rs",
+  "abi/erc4626.json",
+] as const;
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true })));
@@ -36,9 +47,89 @@ function fakeChild(): {
   return { child, stdout, stderr };
 }
 
+async function writeCompiledTemplateInputs(projectDirectory: string): Promise<void> {
+  for (const path of compiledTemplateInputs) {
+    const destination = join(projectDirectory, path);
+    await mkdir(join(destination, ".."), { recursive: true });
+    await writeFile(destination, `${path}\n`, "utf8");
+  }
+}
+
 describe("SubstreamsRunner", () => {
+  it("shares Cargo build artifacts across generated pipeline directories", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-runner-"));
+    temporaryRoots.push(artifactRoot);
+    const projectDirectory = join(artifactRoot, "pl_test1234", "1");
+    await mkdir(projectDirectory, { recursive: true });
+    await writeCompiledTemplateInputs(projectDirectory);
+    const { child } = fakeChild();
+    const spawnMock = vi.fn(() => child);
+    const runner = new SubstreamsRunner({
+      artifactRoot,
+      spawnImplementation: spawnMock as unknown as typeof spawn,
+    });
+
+    const resultPromise = runner.build({ projectDirectory, timeoutMs: 1_000 });
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledOnce());
+    child.emit("close", 0, null);
+    await resultPromise;
+
+    expect((await lstat(join(projectDirectory, "target"))).isSymbolicLink()).toBe(true);
+    expect(resolve(projectDirectory, await readlink(join(projectDirectory, "target"))))
+      .toBe(join(artifactRoot, ".cargo-target"));
+    const [, , spawnOptions] = spawnMock.mock.calls[0] as unknown as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv },
+    ];
+    expect(spawnOptions.env.CARGO_TARGET_DIR).toBe(join(artifactRoot, ".cargo-target"));
+  });
+
+  it("packs from a fingerprint-matched reviewed WASM cache", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-runner-"));
+    temporaryRoots.push(artifactRoot);
+    const projectDirectory = join(artifactRoot, "pl_test1234", "1");
+    await mkdir(projectDirectory, { recursive: true });
+    await writeCompiledTemplateInputs(projectDirectory);
+    const first = fakeChild();
+    const second = fakeChild();
+    const spawnMock = vi.fn()
+      .mockReturnValueOnce(first.child)
+      .mockReturnValueOnce(second.child);
+    const runner = new SubstreamsRunner({
+      artifactRoot,
+      spawnImplementation: spawnMock as unknown as typeof spawn,
+    });
+
+    const firstBuild = runner.build({ projectDirectory, timeoutMs: 1_000 });
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+    const binaryPath = join(
+      artifactRoot,
+      ".cargo-target",
+      "wasm32-unknown-unknown",
+      "release",
+      "prompt2api_erc4626_template.wasm",
+    );
+    await mkdir(join(binaryPath, ".."), { recursive: true });
+    await writeFile(binaryPath, "reviewed wasm", "utf8");
+    first.child.emit("close", 0, null);
+    await firstBuild;
+
+    const cachedBuild = runner.build({ projectDirectory, timeoutMs: 1_000 });
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    second.child.emit("close", 0, null);
+    await cachedBuild;
+
+    expect(spawnMock.mock.calls[0]?.[1]).toEqual([
+      "build",
+      "--manifest",
+      "./substreams.yaml",
+    ]);
+    expect(spawnMock.mock.calls[1]?.[1]).toEqual(["pack", "./substreams.yaml"]);
+  });
+
   it("uses argument arrays, shell false, a bounded environment, and redaction", async () => {
-    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-runner-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-runner-"));
     temporaryRoots.push(artifactRoot);
     const projectDirectory = join(artifactRoot, "pl_test1234", "1");
     await mkdir(projectDirectory, { recursive: true });
@@ -89,17 +180,18 @@ describe("SubstreamsRunner", () => {
   it("redacts explicit secrets and database URLs", () => {
     expect(
       redactOutput(
-        "token postgres://user:pass@db.example/indexloom",
+        "token postgres://user:pass@db.example/prompt2api",
         ["token"],
       ),
     ).toBe("[REDACTED] [REDACTED_DSN]");
   });
 
   it("terminates a process when its wall-clock timeout expires", async () => {
-    const artifactRoot = await mkdtemp(join(tmpdir(), "indexloom-runner-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "prompt2api-runner-"));
     temporaryRoots.push(artifactRoot);
     const projectDirectory = join(artifactRoot, "pl_test1234", "1");
     await mkdir(projectDirectory, { recursive: true });
+    await writeCompiledTemplateInputs(projectDirectory);
     const { child } = fakeChild();
     const kill = vi.fn(() => {
       queueMicrotask(() => child.emit("close", null, "SIGTERM"));
@@ -125,7 +217,7 @@ describe("parseValidationJsonl", () => {
   const line = JSON.stringify({
     "@module": "map_vault_events",
     "@block": 50_999_150,
-    "@type": "indexloom.erc4626.v1.VaultEvents",
+    "@type": "prompt2api.erc4626.v1.VaultEvents",
     "@data": {
       deposits: [
         {
