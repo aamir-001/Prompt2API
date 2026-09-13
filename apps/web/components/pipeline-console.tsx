@@ -58,7 +58,7 @@ export function PipelineConsole({ pipelineId }: { pipelineId: string }) {
       }
       if (next.versions.length > 0) {
         const logs = await api<{ runs: Run[] }>(`/v1/pipelines/${pipelineId}/logs`);
-        setRuns(logs.runs);
+        setRuns(logs.runs.filter((run) => run.version === next.activeVersion));
       }
       if (
         next.status === "AWAITING_APPROVAL" ||
@@ -97,10 +97,14 @@ export function PipelineConsole({ pipelineId }: { pipelineId: string }) {
       await api(`/v1/pipelines/${pipelineId}/${kind}`, { method: "POST", body });
       await refresh();
     } catch (caught) {
-      setError(
-        caught instanceof ApiError ? `${caught.code}: ${caught.message}` :
-          caught instanceof Error ? caught.message : "Action failed",
-      );
+      if (caught instanceof ApiError && caught.code === "ILLEGAL_TRANSITION") {
+        await refresh();
+      } else {
+        setError(
+          caught instanceof ApiError ? `${caught.code}: ${caught.message}` :
+            caught instanceof Error ? caught.message : "Action failed",
+        );
+      }
     } finally {
       setBusy(false);
     }

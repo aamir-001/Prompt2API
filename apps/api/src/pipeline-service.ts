@@ -14,7 +14,6 @@ import type { ControlStore, DerivedPlan, PipelineSnapshot } from "./store.js";
 import { assertPipelineTransition } from "./state-machine.js";
 
 const MAX_PROMPT_LENGTH = 4_000;
-
 export interface PipelineServiceOptions {
   store: ControlStore;
   planner: PipelinePlanner;
@@ -115,6 +114,13 @@ export class PipelineService {
     const pipeline = await this.#store.getPipeline(pipelineId);
     if (pipeline === null) throw new Error("Pipeline not found");
     if (pipeline.spec === null) throw new Error("Pipeline has no validated specification");
+    if (
+      pipeline.state === "BUILD_QUEUED" ||
+      pipeline.state === "BUILDING" ||
+      pipeline.state === "VALIDATING"
+    ) {
+      return pipeline;
+    }
     assertPipelineTransition(pipeline.state, "BUILD_QUEUED");
     const spec = options?.startBlock === undefined
       ? pipeline.spec
@@ -126,7 +132,10 @@ export class PipelineService {
       await this.#store.updatePipelineSpec(pipelineId, spec);
     }
     const version = pipeline.activeVersion + 1;
-    const artifactSubdirectory = `${pipelineId}/${version}`;
+    // Rendering happens before the version is committed to the control store. If
+    // the request is interrupted during that small window, its files must not
+    // block a later retry of the same logical version.
+    const artifactSubdirectory = `${pipelineId}/${version}-${randomBytes(4).toString("hex")}`;
     const rendered = await renderPipeline({
       spec,
       pipelineId,

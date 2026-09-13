@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { PipelinePlanner, PipelineSpec } from "@prompt2api/contracts";
@@ -175,10 +175,22 @@ describe("control API vertical slice", () => {
     expect(plan.body.status).toBe("PLAN_READY");
     expect(plan.body.derivedPlan.filterExpression).toContain("evt_addr:");
 
+    // An interrupted pre-queue render from an earlier request must not block a
+    // fresh attempt of the same logical pipeline version.
+    const staleDirectory = join(artifactRoot, "pl_test1234", "1");
+    await mkdir(staleDirectory, { recursive: true });
+    await writeFile(join(staleDirectory, "partial-artifact"), "stale");
+
     await request(app)
       .post("/v1/pipelines/pl_test1234/build")
       .send({})
       .expect(202);
+
+    const duplicateBuild = await request(app)
+      .post("/v1/pipelines/pl_test1234/build")
+      .send({})
+      .expect(202);
+    expect(duplicateBuild.body.pipelineId).toBe("pl_test1234");
 
     let pipeline = await store.getPipeline("pl_test1234");
     for (let attempt = 0; pipeline?.state !== "AWAITING_APPROVAL" && attempt < 50; attempt += 1) {
@@ -186,6 +198,9 @@ describe("control API vertical slice", () => {
       pipeline = await store.getPipeline("pl_test1234");
     }
     expect(pipeline?.state).toBe("AWAITING_APPROVAL");
+    expect(pipeline?.versions[0]?.artifactDirectory).toMatch(
+      /[\\/]pl_test1234[\\/]1-[0-9a-f]{8}$/,
+    );
     expect(pipeline?.runs.map(({ status }) => status)).toEqual([
       "SUCCEEDED",
       "SUCCEEDED",

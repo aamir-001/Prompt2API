@@ -86,6 +86,7 @@ export interface Preview {
 
 export interface Run {
   id: string;
+  version: number;
   stage: string;
   status: string;
   commandLabel: string | null;
